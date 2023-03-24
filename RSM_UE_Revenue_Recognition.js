@@ -3,12 +3,13 @@
  * @NScriptType usereventscript
  * duplicates all items associated to a category
  */
-define(["N/search", "N/log", "N/runtime", "N/record", "../lodash"], function (
+define(["N/search", "N/log", "N/runtime", "N/record", "../lodash", 'N/query'], function (
   search,
   log,
   runtime,
   record,
-  _
+  _,
+  query
 ) {
   function afterSubmit(context) {
     if (
@@ -22,16 +23,28 @@ define(["N/search", "N/log", "N/runtime", "N/record", "../lodash"], function (
       var getCurrentStatus = newRecord.getText("shipstatus");
       var trandate = newRecord.getValue("trandate");
       log.debug("status", getCurrentStatus);
-      var getDSO = newRecord.getValue("createdfrom");
-      log.debug("sales order id", getDSO);
+      var createdFromId = newRecord.getValue("createdfrom");
+      log.debug("sales order id", createdFromId);
 
       if (getCurrentStatus !== "Shipped") return;
+
+      // Getting createdFrom Transaction Type
+      var createdFromLF = search.lookupFields({
+        type: "transaction",
+        id: createdFromId,
+        columns: ['type']
+     });
+     log.debug('createdFrom Type', createdFromLF);
+
+     if(createdFromLF && createdFromLF.type && createdFromLF.type.length > 0 && createdFromLF.type[0].value === 'TrnfrOrd') {
+      log.debug('Created Form Type', 'The createdForm record type is Transfer Order and is ommited from the revenue recognition process');
+      return;
+     }
 
       var linesCount = newRecord.getLineCount("item");
       log.debug("count item", linesCount);
 
       for (var index = 0; index < linesCount; index++) {
-        //consultar si siempre tendremos el proudct id
         var itemFullfillmentId = newRecord.getSublistValue({
           sublistId: "item",
           fieldId: "custcol_rsm_product_id",
@@ -43,15 +56,49 @@ define(["N/search", "N/log", "N/runtime", "N/record", "../lodash"], function (
           fieldId: "quantity",
           line: index,
         });
+        // Item Fulfilment Component Rate
+        var itemFullfillmentCR = newRecord.getSublistValue({
+          sublistId: "item",
+          fieldId: "custcol_rsm_component_rate",
+          line: index,
+        });
 
         itemFromFullfillment.push({
           id: itemFullfillmentId,
           quantity: itemFullfillmentQty,
+          componentRate: itemFullfillmentCR,
+          ifIndex: index,
         });
       }
       log.debug("item ids", itemFromFullfillment);
-      
 
+      if(itemFromFullfillment.length === 0) {
+        log.info('Item Fulfillment', 'No item fulfillment was found to be processed');
+        return;
+      }
+
+      // Remove AND SO.tranid LIKE 'DSO%' for producttion, this line is for testing only
+      var result  = query.runSuiteQL({
+        query: "SELECT DISTINCT \
+          SO.id \
+        FROM transaction AS SO \
+        INNER JOIN TransactionLine AS IT ON (SO.id = IT.transaction) \
+        WHERE SO.type = 'SalesOrd' \
+          AND SO.custbody_rsm_so_type = 1 \
+          AND SO.tranid LIKE 'DSO%' \
+          AND IT.custcol_rsm_product_id = ?",
+        params: [itemFromFullfillment[0].id]
+      })
+      .asMappedResults();
+      log.debug('getDSO', result);
+
+      if(result.length === 0) {
+        log.info('Sales Order ID', 'The order related to the product ID: '+itemFromFullfillment[0].id+' couldn\'t be found');
+        return;
+      }
+
+      // Getting SO id from the search
+      var getDSO = result[0].id;
       //Load the DSO to grab some important information about the item
       var loadDSORecord = record.load({
         type: record.Type.SALES_ORDER,
@@ -59,14 +106,13 @@ define(["N/search", "N/log", "N/runtime", "N/record", "../lodash"], function (
        // isDynamic: true,
       });
 
-    
-
       // log.debug("sales order record", loadDSORecord);
       var soLineCount = loadDSORecord.getLineCount({ sublistId: "item" });
+      var updateDSO = false;
 
       //fin the item fullfillment lines with the same product id in the sales order
       var dsoLineFounded = [];
-
+      var updatedIFLines = [];
       for (var index = 0; index < soLineCount; index++) {
         //  var line = loadDSORecord.selectLine({
         //    sublistId: "item",
@@ -83,7 +129,6 @@ define(["N/search", "N/log", "N/runtime", "N/record", "../lodash"], function (
           line: index,
         });
         //log.debug('unique', uniqueLine)
-        // ????
         var revEvent = loadDSORecord.getSublistValue({
           sublistId: "item",
           fieldId: "custcol_rev_event_rec",
@@ -107,20 +152,26 @@ define(["N/search", "N/log", "N/runtime", "N/record", "../lodash"], function (
           !revEvent
         ) {
           log.debug("*** creating revenue recognition record ***");
-         var revenueId =  createRevRecognition(uniqueLine,findFullFullfillmentLine,trandate);
-         log.debug('revenue id', revenueId)
+          var revenueId =  createRevRecognition(uniqueLine,findFullFullfillmentLine,trandate);
+          log.debug('revenue id', revenueId);
 
-         //Preguntar si debemos setear este valor en el item fullfillment
-         loadDSORecord.setSublistValue({sublistId: 'item', fieldId: 'custcol_rev_event_rec',line: index, value: revenueId})
-        
-
-         loadDSORecord.save()
-
-         log.debug('*** after save line rev record  id ***')
-
+          // Updating SO
+          loadDSORecord.setSublistValue({sublistId: 'item', fieldId: 'custcol_rev_event_rec',line: index, value: revenueId});
+          updatedIFLines.push({ sublistId: "item", line: findFullFullfillmentLine.ifIndex, fieldId: 'custcol_rev_event_rec', value: revenueId });
+          updateDSO = true;
+          log.debug('*** after set line rev record  id ***');
         }
       }
-      //  log.debug('after looping', dsoLineFounded.length)
+
+      if(updateDSO) {
+        loadDSORecord.save();
+        var itemFulfillment = record.load({ type: newRecord.type, id: newRecord.id });
+        _.forEach(updatedIFLines, function(it) {
+          itemFulfillment.setSublistValue(it);
+        });
+        itemFulfillment.save();
+      }
+      log.debug('after looping', dsoLineFounded.length);
     }
   }
 
@@ -161,13 +212,16 @@ define(["N/search", "N/log", "N/runtime", "N/record", "../lodash"], function (
         value: shippedDate,
       });
 
-      //hacer el calculo para setear el campo amount
+      newRecogntionRecord.setValue({
+        fieldId: "amount",
+        value: +fullfillmentItem.quantity * +fullfillmentItem.componentRate
+      });
 
-   var revRecord=   newRecogntionRecord.save()
-      log.debug('*** after create rev rec ***', revRecord)
-      return revRecord
+      var revRecord = newRecogntionRecord.save();
+      log.debug('*** after create rev rec ***', revRecord);
+      return revRecord;
     } catch (error) {
-     return log.debug('Something went wrong!', error)
+     return log.debug('Something went wrong!', error);
     }
   }
   return {
