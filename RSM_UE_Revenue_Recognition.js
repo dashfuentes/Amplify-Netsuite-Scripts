@@ -77,6 +77,12 @@ define(["N/search", "N/log", "N/runtime", "N/record", "../lodash", 'N/query'], f
         return;
       }
 
+      itemFromFullfillment = _.filter(itemFromFullfillment, function(it) { return it.id; });
+      if(itemFromFullfillment.length === 0) {
+        log.info('products Ids error', 'No product id was found to be processed');
+        return;
+      }
+
       // Remove AND SO.tranid LIKE 'DSO%' for producttion, this line is for testing only
       var result  = query.runSuiteQL({
         query: "SELECT DISTINCT \
