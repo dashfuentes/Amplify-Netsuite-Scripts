@@ -13,9 +13,10 @@ define([
 ], function (search, log, runtime, record, _, query) {
   function beforeSubmit(context) {
     if (
-      context.type === context.UserEventType.CREATE ||
+      context.type === context.UserEventType.CREATE
+      // ||
       //DELETE EDIT LATER
-      context.type === context.UserEventType.EDIT
+      //  context.type === context.UserEventType.EDIT  //Double check with amplify if this needs ti run on EDIT as well
     ) {
       var newRecord = context.newRecord;
 
@@ -37,6 +38,11 @@ define([
         log.debug("*** Scenario #2 Credit/Refund for unshipped items  *** ");
 
         for (var index = 0; index < linesCount; index++) {
+          var itemUniqueLine = newRecord.getSublistValue({
+            sublistId: "item",
+            fieldId: "lineuniquekey",
+            line: index,
+          });
           var itemId = newRecord.getSublistValue({
             sublistId: "item",
             fieldId: "custcol_rsm_product_id",
@@ -79,7 +85,7 @@ define([
                 params: [itemId],
               })
               .asMappedResults();
-            log.debug("getDSO", result);
+            //  log.debug("getDSO", result);
 
             var revenuePositiveId = createPositiveRevRecognition(
               result[0].uniquekey,
@@ -87,7 +93,7 @@ define([
               itemQty,
               trandate
             );
-            log.debug("positive revenue id", revenuePositiveId);
+            //  log.debug("positive revenue id", revenuePositiveId);
 
             newRecord.setSublistValue({
               sublistId: "item",
@@ -97,12 +103,43 @@ define([
             });
 
             var revenueNegativeId = createNegativeRevRecognition(
-              result[0].uniquekey,
+              itemUniqueLine,
               itemRate,
               itemQty,
               trandate
             );
-            log.debug("negative revenue id", revenueNegativeId);
+            //  log.debug("negative revenue id", revenueNegativeId);
+
+            //Create additional reverse shipped revenue event
+            var shippedNotReturned = newRecord.getSublistValue({
+              sublistId: "item",
+              fieldId: "custcol_rsm_qty_shipped_not_returned",
+              line: index,
+            });
+
+            log.debug("returned qty", shippedNotReturned);
+
+            if (shippedNotReturned > 0) {
+              var revenueNegativeNotReturned =
+                createNegativeRevRecognitionForNotReturned(
+                  result[0].uniquekey,
+                  itemRate,
+                  shippedNotReturned,
+                  trandate
+                );
+              log.debug(
+                "after create negative for not returned",
+                revenueNegativeNotReturned
+              );
+
+              //Set Reverse Shipped Revenue Event value
+              newRecord.setSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rsm_reverse_rev_event",
+                line: index,
+                value: revenueNegativeNotReturned,
+              });
+            }
 
             newRecord.setSublistValue({
               sublistId: "item",
@@ -186,7 +223,7 @@ define([
     }
   }
 
-    /**
+  /**
    * @param  {number} uniqueLine
    * @param  {number} rate
    * @param  {number} qty
@@ -247,6 +284,67 @@ define([
       return log.debug("Something went wrong!", error);
     }
   }
+
+  function createNegativeRevRecognitionForNotReturned(
+    uniqueLine,
+    rate,
+    qty,
+    trandate
+  ) {
+    try {
+      //Amount Calculation
+      var amount = rate * qty;
+      log.debug("amount calculation", amount);
+
+      var newRecogntionRecord = record.create({
+        type: "billingrevenueevent",
+        isDynamic: true,
+      });
+
+      //Unique transaction item line
+      newRecogntionRecord.setValue({
+        fieldId: "transactionline",
+        value: parseInt(uniqueLine),
+      });
+
+      //Event Type
+      newRecogntionRecord.setValue({
+        fieldId: "eventtype",
+        value: 3,
+      });
+
+      //Quantity
+      newRecogntionRecord.setValue({
+        fieldId: "quantity",
+        value: -Math.abs(qty),
+      });
+
+      //Event Purpose
+      newRecogntionRecord.setValue({
+        fieldId: "eventpurpose",
+        value: "ACTUAL",
+      });
+
+      //Event Date
+      newRecogntionRecord.setValue({
+        fieldId: "eventdate",
+        value: trandate,
+      });
+
+      //Amount
+      newRecogntionRecord.setValue({
+        fieldId: "amount",
+        value: -Math.abs(amount),
+      });
+
+      var revRecord = newRecogntionRecord.save();
+      log.debug("*** after create rev rec ***", revRecord);
+      return revRecord;
+    } catch (error) {
+      return log.debug("Something went wrong!", error);
+    }
+  }
+
   return {
     // afterSubmit: afterSubmit,
     beforeSubmit: beforeSubmit,
