@@ -12,12 +12,6 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
    * @return {Array|Object|Search|RecordRef} inputSummary
    */
   function getInputData() {
-    var transactionId = runtime.getCurrentScript().getParameter({ name: 'custscript_rsm_mr_transactionid'});
-    log.debug('transaction id from MR', transactionId)
-    if(!transactionId) {
-      throw new Error("The Script parameter custscript_rsm_mr_transactionid was not provided!")
-    }
-
     // Condition: Item Fulfillment created off of Transfer Order should be excluded
     // Filter: FSO.type != 'TrnfrOrd'
     //
@@ -53,8 +47,8 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
           AND DSO.custbody_rsm_so_type = 1 \
           AND DSO.tranid LIKE 'DSO%' \
           AND FSOIT.custcol_cwgp_iff_link IS NOT NULL \
-          AND IFF.id = ?",
-        params: [transactionId]
+          AND IFF.custbody_rsm_process_revenue_event = 'T'",
+        params: []
       })
       .asMappedResults();
   }
@@ -71,7 +65,7 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
       log.debug('transaction from map', input);
 
       // Kit parents won't be processed
-      if( input.itemtype !== 'InvtPart' ) return;
+      if( input.itemtype === 'Kit' ) return;
 
       var loadIFRecord = record.load({
         type: "itemfulfillment",
@@ -121,6 +115,7 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
    * @param {ReduceSummary} context - Data collection containing the groups to process through the reduce stage
    */
   function reduce(context) {
+      log.debug('REDUCE Context', context.values);
       var itemFulfillment = record.load({ type: "itemfulfillment", id: context.key });
 
       // Updating all IFF lines with the Recognition Revenue ID
