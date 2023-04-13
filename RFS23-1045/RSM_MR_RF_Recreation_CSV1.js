@@ -34,17 +34,44 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', '../
       var now   = moment();
       var input = JSON.parse(context.value);
 
+      var jsonData = [];
       if(input.name === now.format('YYYYMMDD') + '_csv1.csv') {
         var csvFile = file.load({id: input.id});
+
+        // Converting CSV to JSON
         var csvData = Papa.parse(csvFile.getContents(), {
           header: true,
           delimiter: ",",
+          skipEmptyLines: true,
           worker: true,
           step: function(results) {
+            // Skipping emtpy values [{}]
+            if(Array.isArray(results.data) && Object.keys(results.data[0]).length === 0) return;
+
+            jsonData.push( _.mapKeys(results.data, function(v, k){ return _.camelCase(k); }));
             log.debug('Row:', results.data);
           }
         });
-        log.debug('csvData', csvData);
+        log.debug('jsonData', jsonData);
+
+        var IFStatus = {
+          "Picked": "A",
+          "Packed": "B",
+          "Shipped": "C"
+        };
+
+        // Grouping IFF from jsonData
+        var iffs = _.chain(jsonData).groupBy("documentNumber").map(function(val) {
+          return { id: val.internalId, documentNumber: val[0].documentNumber, status: val[0].status, createdFromId: val[0].createdFromId, createdFrom: val[0].createdFrom, items: val };
+        }).value();
+        log.debug('iffs', iffs);
+
+        // Creating Request Fulfillment
+        _.forEach(iffs, function(iff) {
+          // Creating RF
+          var requestFulFillmentID = createFulFillmentRequest(iff);
+          log.debug('requestFulfillment ID', requestFulFillmentID);
+        });
       }
     } catch(e) {
       log.error('Map Reduce Script error', e);
@@ -82,108 +109,233 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', '../
     log.error('errors', JSON.stringify(summary.mapSummary.errors));
   }
 
-  // function createFulFillmentRequest(itemFulfillment) {
-  //   var fr = record.create({
-  //     type: record.Type.FULFILLMENT_REQUEST
-  //   })
+  function createFulFillmentRequest(itemFulfillment) {
+    var requestFulFillment = record.transform({
+      fromType: record.Type.SALES_ORDER,
+      fromId: itemFulfillment.createdFromId,
+      toType: record.Type.FULFILLMENT_REQUEST,
+      isDynamic: true
+    });
 
-  //   // Primary Information
-  //   var entity = itemFulfillment.value({fieldId: 'entity'});
-  //   fr.setValue({ fieldId: 'entity', value: entity });
-  //   var trandate = itemFulfillment.value({fieldId: 'trandate'});
-  //   fr.setValue({ fieldId: 'trandate', value: trandate });
-  //   var transactionType = itemFulfillment.value({fieldId: 'custbody_amp_transaction_type'});
-  //   if(transactionType) fr.setValue({ fieldId: 'custbody_amp_transaction_type', value: transactionType });
-  //   var customerPO = itemFulfillment.value({fieldId: 'custbody_amplify_so_po'});
-  //   if(customerPO) fr.setValue({ fieldId: 'custbody_amplify_so_po', value: customerPO });
-  //   var multisiteOrder = itemFulfillment.value({fieldId: 'custbody_amp_multi_site_order'});
-  //   if(multisiteOrder) fr.setValue({ fieldId: 'custbody_amp_multi_site_order', value: multisiteOrder });
-  //   // only in Picked IF
-  //   var multiYear = itemFulfillment.value({fieldId: 'custbody_amp_multi_site_order'});
-  //   if(multiYear) fr.setValue({ fieldId: 'custbody_amp_multi_site_order', value: multiYear });
-  //   var createdFrom = itemFulfillment.value({fieldId: 'createdfrom'});
-  //   fr.setValue({ fieldId: 'createdfrom', value: createdFrom });
-  //   var fulFillmentRep = itemFulfillment.value({fieldId: 'custbody_amp_fulfillment_rep'});
-  //   if(fulFillmentRep) fr.setValue({ fieldId: 'custbody_amp_fulfillment_rep', value: fulFillmentRep });
-  //   var frMemo = itemFulfillment.value({fieldId: 'memo'});
-  //   if(frMemo) fr.setValue({ fieldId: 'memo', value: frMemo });
+    // requestFulFillment.setValue({ fieldId: 'tranid', value: itemFulfillment.documentNumber });
+    requestFulFillment.setValue({ fieldId: 'statusref', value: itemFulfillment.status });
+    requestFulFillment.setValue({ fieldId: 'externailid', value: itemFulfillment.id });
 
-  //   // Control
-  //   var frTargetShipDate = itemFulfillment.value({fieldId: 'custbody_fr_target_ship_date'});
-  //   if(frTargetShipDate) fr.setValue({ fieldId: 'custbody_fr_target_ship_date', value: frTargetShipDate });
-  //   var consolidateOrder = itemFulfillment.value({fieldId: 'custbody_amp_consolidate_ship'});
-  //   if(consolidateOrder) fr.setValue({ fieldId: 'custbody_amp_consolidate_ship', value: consolidateOrder });
-  //   var consolidateId = itemFulfillment.value({fieldId: 'custbody_so_consolidate_id'});
-  //   if(consolidateId) fr.setValue({ fieldId: 'custbody_so_consolidate_id', value: consolidateId });
-  //   var integrationStatus = itemFulfillment.value({fieldId: 'custbodyintegrationstatus'});
-  //   if(integrationStatus) fr.setValue({ fieldId: 'custbodyintegrationstatus', value: integrationStatus });
-  //   // INTERNAL NOTES FOR THIS SALES ORDER: custbody_amp_internal_notes
-  //   // FULFILLMENT LOCATION: location
+    _.forEach(itemFulfillment.items, function(it){
+      requestFulFillment.selectNewLine({ sublistId: 'item' });
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'item',
+        value: it.itemId
+      });
 
-  //   // Clasification
-  //   var lastModDate = itemFulfillment.value({fieldId: 'custbody_esc_last_modified_date'});
-  //   if(lastModDate) fr.setValue({ fieldId: 'custbody_esc_last_modified_date', value: lastModDate });
-  //   var createdDate = itemFulfillment.value({fieldId: 'custbody_esc_created_date'});
-  //   if(createdDate) fr.setValue({ fieldId: 'custbody_esc_created_date', value: createdDate });
-  //   var actDateShipped = itemFulfillment.value({fieldId: 'custbody_shipped_date'});
-  //   if(actDateShipped) fr.setValue({ fieldId: 'custbody_shipped_date', value: actDateShipped });
-  //   // Only in Packed IF
-  //   var revRecEvent = itemFulfillment.value({fieldId: 'custbody_rsm_rev_rec_event'});
-  //   if(revRecEvent) fr.setValue({ fieldId: 'custbody_rsm_rev_rec_event', value: revRecEvent });
-  //   // SHIPMENT SERVICE TYPE: custbody_amp_ship_ser_tp
-  //   // SHOOL YEAR: custbody_cwgp_so_rfs23_school_yr
-  //   // ORDER FULLFILLMENT TYPE: custbody_cwgp_orderff_type
-  //   // FULFILLMENT TYPE: fulfillmenttype
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'location',
+        value: it.locationId
+      });
 
-  //   // Logistics
-  //   // Just for Picket IF
-  //   var emailFDelivery = itemFulfillment.value({fieldId: 'custbody_email_for_delivery'});
-  //   if(emailFDelivery) fr.setValue({ fieldId: 'custbody_email_for_delivery', value: emailFDelivery });
-  //   // Just for Picket IF
-  //   var phoneFDelivery = itemFulfillment.value({fieldId: 'custbody_phone_for_delivery'});
-  //   if(phoneFDelivery) fr.setValue({ fieldId: 'custbody_phone_for_delivery', value: phoneFDelivery });
-  //   // Just for Picket IF
-  //   var deliveryLType = itemFulfillment.value({fieldId: 'custbody_delivery_location_type'});
-  //   if(deliveryLType) fr.setValue({ fieldId: 'custbody_delivery_location_type', value: deliveryLType });
-  //   // Just for Picket IF
-  //   var canReceivePallets = itemFulfillment.value({fieldId: 'custbody_can_receive_pallets'});
-  //   if(canReceivePallets) fr.setValue({ fieldId: 'custbody_can_receive_pallets', value: canReceivePallets });
-  //   // Just for Picket IF
-  //   var highLoadingDock = itemFulfillment.value({fieldId: 'custbody_high_loading_doc'});
-  //   if(highLoadingDock) fr.setValue({ fieldId: 'custbody_high_loading_doc', value: highLoadingDock });
-  //   // Just for Picket IF
-  //   var palleteJack = itemFulfillment.value({fieldId: 'custbody_so_pallet_jack'});
-  //   if(palleteJack) fr.setValue({ fieldId: 'custbody_so_pallet_jack', value: palleteJack });
-  //   // Just for Picket IF
-  //   var liftGateRequired = itemFulfillment.value({fieldId: 'custbody_so_ship_liftgaterequired'});
-  //   if(liftGateRequired) fr.setValue({ fieldId: 'custbody_so_ship_liftgaterequired', value: liftGateRequired });
-  //   // Just for Picket IF
-  //   var daysOfOperation = itemFulfillment.value({fieldId: 'custbody_days_of_op'});
-  //   if(daysOfOperation) fr.setValue({ fieldId: 'custbody_days_of_op', value: daysOfOperation });
-  //   // Just for Picket IF
-  //   var hoursOfOperation = itemFulfillment.value({fieldId: 'custbody_hours_of_operation'});
-  //   if(hoursOfOperation) fr.setValue({ fieldId: 'custbody_hours_of_operation', value: hoursOfOperation });
-  //   // Just for Picket IF
-  //   var specialShippingInst = itemFulfillment.value({fieldId: 'custbody_special_ship_instructions'});
-  //   if(specialShippingInst) fr.setValue({ fieldId: 'custbody_special_ship_instructions', value: specialShippingInst });
-  //   // Just for Picket IF
-  //   var specialServRequired = itemFulfillment.value({fieldId: 'custbody_special_service_required'});
-  //   if(specialServRequired) fr.setValue({ fieldId: 'custbody_special_service_required', value: specialServRequired });
-  //   // Just for Picket IF
-  //   var elevatorMovePallets = itemFulfillment.value({fieldId: 'custbody_elevator_to_move_pallets'});
-  //   if(elevatorMovePallets) fr.setValue({ fieldId: 'custbody_elevator_to_move_pallets', value: elevatorMovePallets });
-  //   // Just for Picket IF
-  //   var howManyFlightsOfStaris = itemFulfillment.value({fieldId: 'custbody_how_many_flights_of_stairs'});
-  //   if(howManyFlightsOfStaris) fr.setValue({ fieldId: 'custbody_how_many_flights_of_stairs', value: howManyFlightsOfStaris });
-  //   // Just for Picket IF
-  //   var ssrInitiative = itemFulfillment.value({fieldId: 'custbody_ssr_initiative'});
-  //   if(ssrInitiative) fr.setValue({ fieldId: 'custbody_ssr_initiative', value: ssrInitiative });
-  //   // BILLING ADDRESS (DEFAULT): custbody_billing_add_default
-  //   // VAT ID: custbody_vat_id
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_amplify_so_isbn_formatted',
+        value: it.isbn
+      });
 
-  //   fr.save();
-  //   return fr;
-  // }
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'quantity',
+        value: it.quantity
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_amp_ddb',
+        value: it.ddb
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_amp_dda',
+        value: it.dda
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_amp_custom_ship_to',
+        value: it.shipToCustom
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_item_tracking_numbers',
+        value: it.itemTrackingNumbers
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_nscs_lot_no',
+        value: it.lotNo
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_iff_ship_qty',
+        value: it.shipQty
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_iff_ship_status',
+        value: it.shipStatus
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_cwgp_couriershippeddate',
+        value: it.courierShippedDate
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_sps_itemstatus',
+        value: it.acknowledgmentItemStatus
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_amp_assembly_description',
+        value: it.assemblyDescription
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_atlas_flightstart_d',
+        value: it.flightStartDate
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_atlas_flightend_d',
+        value: it.flightEndDate
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'class',
+        value: it.productLineId
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_trainingid',
+        value: it.trainingId
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_rsm_product_id',
+        value: it.productId
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_qpc',
+        value: it.qtyPerCarton
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_nscs_cartons_per_palle',
+        value: it.cartonsPerPallet
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_nscs_science_kit_num_boxes',
+        value: it.scienceKitNumberOfBoxes
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_amp_full_cartons_expected',
+        value: it.expectedFullCartons
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_exp_pallet',
+        value: it.expectedFullPallets
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_fullcartoncharges',
+        value: it.fullCartonCharge
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_fullpalletcharges',
+        value: it.fullPalletCharge
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_looseitemcharge',
+        value: it.looseItemCharge
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_cartoncharge',
+        value: it.perCartonCharge
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_flatlinecharge',
+        value: it.flatLineProcessingCharge
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_sandhtotal',
+        value: it.totalHandling
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'department',
+        value: it.departmentId
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_ship_to_email_receiver',
+        value: it.shipToEmailReceiver
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_so_item_tracking_hyperlink',
+        value: it.trackingHyperlink
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_so_tracking_numbers',
+        value: it.trackingNumberAssociated
+      });
+
+      requestFulFillment.setCurrentSublistValue({
+        sublistId: 'item',
+        fieldId: 'custcol_so_item_tracking_link',
+        value: it.trackingLink
+      });
+    });
+
+    return requestFulFillment.save();
+  }
 
   return {
     config:{

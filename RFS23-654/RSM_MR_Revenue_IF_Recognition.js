@@ -46,8 +46,7 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
           AND DSO.type = 'SalesOrd' \
           AND DSO.custbody_rsm_so_type = 1 \
           AND DSO.tranid LIKE 'DSO%' \
-          AND FSOIT.custcol_cwgp_iff_link IS NOT NULL \
-          AND IFF.custbody_rsm_process_revenue_event = 'T'",
+          AND FSOIT.custcol_cwgp_iff_link IS NOT NULL",
         params: []
       })
       .asMappedResults();
