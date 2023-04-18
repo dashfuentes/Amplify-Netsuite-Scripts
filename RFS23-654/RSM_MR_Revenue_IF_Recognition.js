@@ -25,6 +25,7 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
           FSO.type AS created_from_type, \
           IFIT.item, \
           IFIT.custcol_rsm_product_id AS product_id, \
+          DSO.id AS dso_id, \
           DSOIT.uniquekey AS lineuniquekey, \
           IFIT.quantity, \
           IFIT.itemtype, \
@@ -59,10 +60,10 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
   function mapStage(context) {
     log.debug('MAP input', context.value);
 
-    try {
-      var input = JSON.parse(context.value);
-      log.debug('transaction from map', input);
+    var input = JSON.parse(context.value);
+    log.debug('transaction from map', input);
 
+    try {
       // Kit parents won't be processed
       if( input.itemtype === 'Kit' ) return;
 
@@ -103,7 +104,8 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
 
       context.write({key: input.id, value: JSON.stringify({ sublistId: "item", line: input.line, fieldId: 'custcol_rev_event_rec', value: revenueId })});
     } catch(e) {
-      log.error('Map Reduce Script error', e);
+      log.error('M/R Script error','IFF: '+ input.id + ' DSO: ' + input.dso_id);
+      log.error('M/R Script error', e);
     }
 
     return 'map complete';
@@ -139,60 +141,58 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
       log.audit('summary.output key,value', k + ', ' + v);
       return true;
     });
-    log.error('errors', JSON.stringify(summary.mapSummary.errors));
+    if(!_.isEmpty(summary.mapSummary.errors)) {
+      log.error('errors', JSON.stringify(summary.mapSummary.errors));
+    }
   }
 
   function createRevRecognition(data) {
-    try {
-      var newRecogntionRecord = record.create({
-        type: "billingrevenueevent",
-        isDynamic: true,
-      });
+    var newRecogntionRecord = record.create({
+      type: "billingrevenueevent",
+      isDynamic: true,
+    });
 
-      //Unique transaction item line
-      newRecogntionRecord.setValue({
-        fieldId: "transactionline",
-        value: parseInt(data.lineuniquekey),
-      });
+    //Unique transaction item line
+    newRecogntionRecord.setValue({
+      fieldId: "transactionline",
+      value: parseInt(data.lineuniquekey),
+    });
 
-      //Event Type
-      newRecogntionRecord.setValue({
-        fieldId: "eventtype",
-        value: 3,
-      });
+    //Event Type
+    newRecogntionRecord.setValue({
+      fieldId: "eventtype",
+      value: 3,
+    });
 
-      var quantity = Math.abs(+data.quantity);
-      //Quantity
-      newRecogntionRecord.setValue({
-        fieldId: "quantity",
-        value: quantity,
-      });
+    var quantity = Math.abs(+data.quantity);
+    //Quantity
+    newRecogntionRecord.setValue({
+      fieldId: "quantity",
+      value: quantity,
+    });
 
-      //Event Purpose
-      newRecogntionRecord.setValue({
-        fieldId: "eventpurpose",
-        value: "ACTUAL",
-      });
+    //Event Purpose
+    newRecogntionRecord.setValue({
+      fieldId: "eventpurpose",
+      value: "ACTUAL",
+    });
 
-      //Event Date
-      var trandate = moment(data.trandate);
-      newRecogntionRecord.setValue({
-        fieldId: "eventdate",
-        value: trandate.toDate(),
-      });
+    //Event Date
+    var trandate = moment(data.trandate);
+    newRecogntionRecord.setValue({
+      fieldId: "eventdate",
+      value: trandate.toDate(),
+    });
 
-      var amount = (data.kitmemberof ? +data.component_rate : +data.item_rate) * quantity;
-      log.debug('Amount', amount);
-      newRecogntionRecord.setValue({
-        fieldId: "amount",
-        value: amount
-      });
+    var amount = (data.kitmemberof ? +data.component_rate : +data.item_rate) * quantity;
+    log.debug('Amount', amount);
+    newRecogntionRecord.setValue({
+      fieldId: "amount",
+      value: amount
+    });
 
-      var revRecord = newRecogntionRecord.save();
-      return revRecord;
-    } catch (error) {
-     return log.debug('Something went wrong!', error);
-    }
+    var revRecord = newRecogntionRecord.save();
+    return revRecord;
   }
 
   return {
