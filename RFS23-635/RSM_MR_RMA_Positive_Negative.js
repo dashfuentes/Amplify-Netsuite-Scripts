@@ -62,16 +62,28 @@ define([
       //  log.debug("sales order id", isReadyForRevenue);
 
       var RMAType = loadRMATransaction.getText("custbody_rsm_rma_type");
-      //log.debug("rma type", RMAType);
+      log.debug("rma type", RMAType);
 
       var linesCount = loadRMATransaction.getLineCount("item");
-      //log.debug("count item", linesCount);
+      log.debug("count item", linesCount);
 
       var trandate = loadRMATransaction.getValue("trandate");
+      var getBSOTransactionId = loadRMATransaction.getValue(
+        "custbody_rsm_blank_ord_created"
+      );
+      log.debug("BSO Transaction ID", getBSOTransactionId);
+       //We need to load the BSO in order to update some line fields
+       var loadBSOTransaction = record.load({
+        type: "customsale_rsm_blanket_order_bso",
+        id: getBSOTransactionId,
+      });
 
       if (isReadyForRevenue && RMAType === "Deal Return Authorization") {
         log.debug("*** It is a DEAL RMA Transaction ***");
         log.debug("*** Scenario #2 Credit/Refund for unshipped items  *** ");
+
+        var RMAProductIds = [];
+        var RMAProductIdWithQtyShippedNotReturned = [];
 
         for (var index = 0; index < linesCount; index++) {
           var itemUniqueLine = loadRMATransaction.getSublistValue({
@@ -84,6 +96,7 @@ define([
             fieldId: "custcol_rsm_product_id",
             line: index,
           });
+          log.debug("itemId", itemId);
           var itemName = loadRMATransaction.getSublistValue({
             sublistId: "item",
             fieldId: "item_display",
@@ -101,12 +114,16 @@ define([
             line: index,
           });
 
+          log.debug("item name", itemName);
           //Just for physical items only
           if (
-            itemName.indexOf("-NI") ||
-            itemName.indexOf("-NIA") ||
-            itemName.indexOf("-NIK")
+            itemName.indexOf("-NI") > 0 ||
+            itemName.indexOf("-NIA") > 0 ||
+            itemName.indexOf("-NIK") > 0
           ) {
+
+            //RMA product information
+            RMAProductIds.push({id:itemId, qty: itemQty})
             var result = query
               .runSuiteQL({
                 query:
@@ -116,12 +133,11 @@ define([
           INNER JOIN TransactionLine AS IT ON (SO.id = IT.transaction) \
           WHERE SO.type = 'SalesOrd' \
           AND SO.custbody_rsm_so_type = 1\
-          AND SO.tranid LIKE 'DSO%' \
           AND IT.custcol_rsm_product_id =  ?",
                 params: [itemId],
               })
               .asMappedResults();
-            //  log.debug("getDSO", result);
+            log.debug("getDSO", result);
 
             var revenuePositiveId = createPositiveRevRecognition(
               result[0].uniquekey,
@@ -164,6 +180,8 @@ define([
             log.debug("returned qty", shippedNotReturned);
 
             if (shippedNotReturned > 0) {
+              //Need this for BSO updates
+              RMAProductIdWithQtyShippedNotReturned.push({id:itemId, qty: itemQty})
               var revenueNegativeNotReturned =
                 createNegativeRevRecognitionForNotReturned(
                   result[0].uniquekey,
@@ -193,7 +211,170 @@ define([
         });
 
         loadRMATransaction.save();
+
+        if (getBSOTransactionId) {
+          log.debug(
+            "*** Ready for BSO updated regarding a Deal RMA ***"
+          );
+          var BSOLineCount = loadBSOTransaction.getLineCount("item");
+
+          for (var index = 0; index < BSOLineCount; index++) {
+            var itemBSOId = loadBSOTransaction.getSublistValue({
+              sublistId: "item",
+              fieldId: "custcol_rsm_product_id",
+              line: index,
+            });
+            var itemBSOQtyRemain = loadBSOTransaction.getSublistValue({
+              sublistId: "item",
+              fieldId: "custcol_rsm_remaining_qty",
+              line: index,
+            });
+
+            var itemBSOQtyRefunded = loadBSOTransaction.getSublistValue({
+              sublistId: "item",
+              fieldId: "custcol_rsm_qty_refunded",
+              line: index,
+            });
+
+            var findRMAItemLine = _.find(RMAProductIds, function (line) {
+              return line.id == itemBSOId;
+            });
+            //#Scenario #2
+            if (
+              findRMAItemLine &&
+              findRMAItemLine !== "undefined" &&
+              itemBSOId == findRMAItemLine.id
+            ) {
+              // //Decrease Remaining Quantity
+              var decreaseRemainQty = itemBSOQtyRemain - findRMAItemLine.qty;
+            //  log.debug('decrease remain', decreaseRemainQty)
+              loadBSOTransaction.setSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rsm_remaining_qty",
+                line: index,
+                value: decreaseRemainQty,
+              });
+
+              //Increase Qty Refunded
+              var increaseQtyRefunded = itemBSOQtyRefunded + findRMAItemLine.qty;
+             //   log.debug('increase refunded', increaseQtyRefunded)
+
+              loadBSOTransaction.setSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rsm_qty_refunded",
+                line: index,
+                value: increaseQtyRefunded,
+              });
+
+              //Special update on the Remaining Qty Shipped
+              if (
+                RMAProductIdWithQtyShippedNotReturned &&
+                RMAProductIdWithQtyShippedNotReturned.length
+              ) {
+                var findRMAItemLineForShipped = _.find(
+                  RMAProductIdWithQtyShippedNotReturned,
+                  function (line) {
+                    return line.id == itemBSOId;
+                  }
+                );
+
+                //Scenario #4 just for "Qty Shipped Not Returned"
+                if (
+                  findRMAItemLineForShipped &&
+                  findRMAItemLineForShipped !== "undefined" &&
+                  itemBSOId == findRMAItemLineForShipped.id
+                ) {
+                  log.debug("special line founded", findRMAItemLineForShipped);
+
+                  var specialRemainQty =
+                    itemBSOQtyRemain + findRMAItemLineForShipped.qty;
+                  loadBSOTransaction.setSublistValue({
+                    sublistId: "item",
+                    fieldId: "custcol_rsm_remaining_qty",
+                    line: index,
+                    value: specialRemainQty,
+                  });
+                }
+              }
+            }
+          }
+
+          loadBSOTransaction.save();
+          log.debug('*after update BSO transaction*')
+        }
+
+        //
+      } else if (
+        !isReadyForRevenue &&
+        RMAType === "Fulfillment Return Authorization"
+      ) {
+        //*** BSO setting fields block *** //
+        if (getBSOTransactionId) {
+          log.debug("execute", getRMAItemLinesForFRMA(loadRMATransaction));
+          var RMAItemInfoLines = getRMAItemLinesForFRMA(loadRMATransaction);
+
+         
+
+          var BSOLineCount = loadBSOTransaction.getLineCount("item");
+          var isReShip = loadBSOTransaction.getValue("custbody_rsm_reship");
+
+          for (var index = 0; index < BSOLineCount; index++) {
+            var itemBSOId = loadBSOTransaction.getSublistValue({
+              sublistId: "item",
+              fieldId: "custcol_rsm_product_id",
+              line: index,
+            });
+
+            var itemBSOPendingReturn = loadBSOTransaction.getSublistValue({
+              sublistId: "item",
+              fieldId: "custcol_rsm_qty_pend_return",
+              line: index,
+            });
+
+            var findRMAItemLine = _.find(RMAItemInfoLines, function (line) {
+              return line.id == itemBSOId;
+            });
+
+            // log.debug("line founded to be process", findRMAItemLine);
+
+            if (
+              findRMAItemLine &&
+              findRMAItemLine !== "undefined" &&
+              itemBSOId == findRMAItemLine.id
+              // &&
+              //  isReShip
+            ) {
+              log.debug("**it is a F-RMA and ready to update the BSO fields**");
+              //Scenario #1 and #3
+              //Increase Pending Return
+              var increasePendingReturn = itemBSOPendingReturn + findRMAItemLine.qty;
+            //  log.debug('increase pending return', increasePendingReturn)
+              loadBSOTransaction.setSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rsm_qty_pend_return",
+                line: index,
+                value: increasePendingReturn,
+              });
+            }
+          }
+          loadBSOTransaction.save();
+        }
+
+        loadRMATransaction.setValue({
+          fieldId: "custbody_rsm_process_revenue_event",
+          value: false,
+        });
+
+        loadRMATransaction.save();
+
+        //*** BSO setting fields block *** //
       } else {
+        loadRMATransaction.setValue({
+          fieldId: "custbody_rsm_process_revenue_event",
+          value: false,
+        });
+
+        loadRMATransaction.save();
         log.debug(
           "** The Ready for Revenue Script field should be check and it has to be a Deal RMA"
         );
@@ -204,6 +385,55 @@ define([
     }
 
     return "map complete";
+  }
+  /**
+   * @param  {object} transactionObj
+   * Get the RMA transaction lines information for Fulfillment Return Authorization type
+   * 
+   */
+  function getRMAItemLinesForFRMA(transactionObj) {
+    var linesCount = transactionObj.getLineCount("item");
+    log.debug("count item", linesCount);
+    var itemIds = [];
+    var itemShippedNotReturnedInfo = [];
+    for (var index = 0; index < linesCount; index++) {
+      var itemId = transactionObj.getSublistValue({
+        sublistId: "item",
+        fieldId: "custcol_rsm_product_id",
+        line: index,
+      });
+      log.debug("itemId", itemId);
+      var itemName = transactionObj.getSublistValue({
+        sublistId: "item",
+        fieldId: "item_display",
+        line: index,
+      });
+
+      var itemQty = transactionObj.getSublistValue({
+        sublistId: "item",
+        fieldId: "quantity",
+        line: index,
+      });
+
+      var shippedNotReturned = transactionObj.getSublistValue({
+        sublistId: "item",
+        fieldId: "custcol_rsm_qty_shipped_not_returned",
+        line: index,
+      });
+
+      log.debug("returned qty", shippedNotReturned);
+
+      if (
+        itemName.indexOf("-NI") > 0 ||
+        itemName.indexOf("-NIA") > 0 ||
+        itemName.indexOf("-NIK") > 0
+      ) {
+        itemIds.push({ id: itemId, qty: itemQty });
+      }
+    }
+    log.debug("after get all the info for FRMA", itemIds);
+
+    return itemIds;
   }
 
   /**
@@ -419,10 +649,6 @@ define([
     });
     log.error("errors", JSON.stringify(summary.mapSummary.errors));
   }
-
-
-
- 
 
   return {
     config: {
