@@ -12,24 +12,17 @@ define(["N/search", "N/log", "N/runtime", "N/record", "../lodash", 'N/query', 'N
   query,
   task
 ) {
-  function afterSubmit(context) {
+  function beforeSubmit(context) {
     if (
       context.type === context.UserEventType.CREATE ||
       context.type === context.UserEventType.EDIT
     ) {
       try {
         var newRecord = context.newRecord;
-
-        var callRevenueRecognition = task.create({
-          taskType: task.TaskType.MAP_REDUCE,
-          scriptId: 'customscript_rsm_mr_if_revrec_process',
-          params: {
-            custscript_rsm_mr_transactionid: newRecord.id
-          }
+        newRecord.setValue({
+          fieldId: 'custbody_rsm_process_revenue_event',
+          value: true
         });
-        var mrTaskId= callRevenueRecognition.submit()
-        taskStatus = task.checkStatus(mrTaskId);
-        log.debug('MR Status ', taskStatus)
 
         return;
       } catch(e) {
@@ -39,6 +32,6 @@ define(["N/search", "N/log", "N/runtime", "N/record", "../lodash", 'N/query', 'N
   }
 
   return {
-    afterSubmit: afterSubmit,
+    beforeSubmit: beforeSubmit,
   };
 });
