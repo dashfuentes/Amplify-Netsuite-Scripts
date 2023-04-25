@@ -34,7 +34,7 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
         INNER JOIN Transaction AS DSO ON (DSO.id = DSOIT.transaction) \
         INNER JOIN PreviousTransactionLineLink AS PTLL ON (PTLL.nextdoc = IFF.id) \
         INNER JOIN Transaction AS FSO ON (FSO.id = PTLL.previousdoc) \
-        INNER JOIN TransactionLine AS FSOIT ON (FSO.id = FSOIT.transaction AND IFIT.item = FSOIT.item) \
+        INNER JOIN TransactionLine AS FSOIT ON (FSO.id = FSOIT.transaction AND IFIT.item = FSOIT.item AND FSOIT.custcol_rsm_product_id IS NOT NULL) \
         WHERE IFF.type = 'ItemShip' \
           AND FSO.type != 'TrnfrOrd' \
           AND IFIT.custcol_rsm_product_id IS NOT NULL \
