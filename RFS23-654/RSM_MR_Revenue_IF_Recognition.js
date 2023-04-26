@@ -12,11 +12,6 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
    * @return {Array|Object|Search|RecordRef} inputSummary
    */
   function getInputData() {
-    // Condition: Item Fulfillment created off of Transfer Order should be excluded
-    // Filter: FSO.type != 'TrnfrOrd'
-    //
-    // Remove: AND DSO.tranid LIKE 'DSO%', for testing only
-    //
     return query
       .runSuiteQL({
         query: "SELECT DISTINCT \
@@ -39,15 +34,13 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
         INNER JOIN Transaction AS DSO ON (DSO.id = DSOIT.transaction) \
         INNER JOIN PreviousTransactionLineLink AS PTLL ON (PTLL.nextdoc = IFF.id) \
         INNER JOIN Transaction AS FSO ON (FSO.id = PTLL.previousdoc) \
-        INNER JOIN TransactionLine AS FSOIT ON (FSO.id = FSOIT.transaction AND IFIT.item = FSOIT.item) \
+        INNER JOIN TransactionLine AS FSOIT ON (FSO.id = FSOIT.transaction AND IFIT.item = FSOIT.item AND FSOIT.custcol_rsm_product_id IS NOT NULL) \
         WHERE IFF.type = 'ItemShip' \
           AND FSO.type != 'TrnfrOrd' \
           AND IFIT.custcol_rsm_product_id IS NOT NULL \
           AND IFIT.custcol_rev_event_rec IS NULL \
           AND DSO.type = 'SalesOrd' \
-          AND DSO.custbody_rsm_so_type = 1 \
-          AND DSO.tranid LIKE 'DSO%' \
-          AND FSOIT.custcol_cwgp_iff_link IS NOT NULL",
+          AND DSO.custbody_rsm_so_type = 1",
         params: []
       })
       .asMappedResults();
@@ -184,7 +177,7 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
       value: trandate.toDate(),
     });
 
-    var amount = (data.kitmemberof ? +data.component_rate : +data.item_rate) * quantity;
+    var amount = (+data.component_rate || +data.item_rate) * quantity;
     log.debug('Amount', amount);
     newRecogntionRecord.setValue({
       fieldId: "amount",
