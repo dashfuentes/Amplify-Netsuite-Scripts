@@ -335,7 +335,11 @@ define(['N/search', 'N/record', 'N/runtime', 'N/error', 'N/format', 'N/query'],
 
 					var soSumQtyShipped = getItemLinesTotal(prodLinesObj, columns, soSumQtyShippedLbl);
 
-					log.debug(stLoggerTitle, 'KEY: ' + soRecId + ' ' + 'soProdLine: ' + soProdLine + ' soProdLineDesc: ' + soProdLineDesc + ' soSumQtyShipped: ' + soSumQtyShipped + ' soSumTotlAmt: ' + soSumTotlAmt + ' maxIFDate: ' + maxIFDate);
+					var productIDs = getItemLinesProductIDs(prodLinesObj, columns);
+
+					var maxIFDate = getMaxIFDate(soRecId, productIDs);
+
+					log.debug(stLoggerTitle, 'KEY: ' + soRecId + ' ' + 'soProdLine: ' + soProdLine + ' soProdLineDesc: ' + soProdLineDesc + ' soSumQtyShipped: ' + soSumQtyShipped + ' soSumTotlAmt: ' + soSumTotlAmt + ' maxIFDate: ' + maxIFDate + ' productIDs: ' + productIDs.join(',') );
 
 					if (soSumQtyShipped > 0) {
 						var updCumulativePct = (forceParseFloat(soSumQtyShipped) / forceParseFloat(soSumTotlAmt)).toFixed(2);
@@ -349,13 +353,6 @@ define(['N/search', 'N/record', 'N/runtime', 'N/error', 'N/format', 'N/query'],
 							var soLineUniqueKey = soLineUniqueKeyObj[0].getValue({
 								name: 'lineuniquekey'
 							});
-
-							var soLineProductId = soLineUniqueKeyObj[0].getValue({
-								name: 'custcol_rsm_product_id'
-							});
-							log.debug(stLoggerTitle, 'KEY: ' + soRecId + ' soLineProductId: ' + soLineProductId);
-							var maxIFDate = getMaxIFDate(soRecId, soLineProductId);
-							log.debug(stLoggerTitle, 'KEY: ' + soRecId + ' maxIFDate: ' + maxIFDate);
 
 							revRecogEventPct = getRevRecogEventPct(revRecEventSvdSrch, soRecId, soLineUniqueKey);
 							log.debug(stLoggerTitle, 'KEY: ' + soRecId + ' ' + 'updCumulativePct: ' + updCumulativePct + ' revRecogEventPct: ' + forceParseFloat(revRecogEventPct) / 100);
@@ -401,7 +398,11 @@ define(['N/search', 'N/record', 'N/runtime', 'N/error', 'N/format', 'N/query'],
 
 					var soSumQtyShipped = getItemLinesTotal(spclItemLinesObj, columns, soSumQtyShippedLbl);
 
-					log.debug(stLoggerTitle, 'soSumQtyShipped: ' + soSumQtyShipped + ' soSumTotlAmt: ' + soSumTotlAmt);
+					var productIDs = getItemLinesProductIDs(spclItemLinesObj, columns);
+
+					var maxIFDate = getMaxIFDate(soRecId, productIDs);
+
+					log.debug(stLoggerTitle, 'soSumQtyShipped: ' + soSumQtyShipped + ' soSumTotlAmt: ' + soSumTotlAmt + ' maxIFDate: ' + maxIFDate + ' productIDs: ' + productIDs.join(','));
 
 					if (soSumQtyShipped > 0) {
 						var updCumulativePct = (forceParseFloat(soSumQtyShipped) / forceParseFloat(soSumTotlAmt)).toFixed(2);
@@ -417,14 +418,6 @@ define(['N/search', 'N/record', 'N/runtime', 'N/error', 'N/format', 'N/query'],
 								var soLineUniqueKey = soLineUniqueKeyObj[y].getValue({
 									name: 'lineuniquekey'
 								});
-
-								var soLineProductId = soLineUniqueKeyObj[0].getValue({
-									name: 'custcol_rsm_product_id'
-								});
-								log.debug(stLoggerTitle, 'KEY: ' + soRecId + ' soLineProductId: ' + soLineProductId);
-								var maxIFDate = getMaxIFDate(soRecId, soLineProductId);
-								log.debug(stLoggerTitle, 'KEY: ' + soRecId + ' maxIFDate: ' + maxIFDate);
-
 
 								revRecogEventPct = getRevRecogEventPct(revRecEventSvdSrch, soRecId, soLineUniqueKey);
 								log.debug(stLoggerTitle, 'KEY: ' + soRecId + ' ' + 'updCumulativePct: ' + updCumulativePct + ' revRecogEventPct: ' + forceParseFloat(revRecogEventPct) / 100);
@@ -502,40 +495,57 @@ define(['N/search', 'N/record', 'N/runtime', 'N/error', 'N/format', 'N/query'],
 			return soSumTotlAmt;
 		}
 
+	 /**
+		*
+		* This function returns all products IDs for all Item Lines
+		*
+		*/
+		function getItemLinesProductIDs(itemLinesObj, columns) {
+			var stLoggerTitle = 'getItemLinesProductIDs';
+
+			var productIDs = [];
+
+			for (var i = 0; i < itemLinesObj.length; i++) {
+				for (var j = 0; j < columns.length; j++) {
+					if (columns[j].label == 'Product ID') {
+						productId = itemLinesObj[i].getValue(columns[j]);
+						if(productId) {
+							productIDs.push(productId);
+						}
+					}
+				}
+			}
+
+			return productIDs;
+		}
+
 		/**
 		 * This funtions to get the MAX IF Date
 		 */
-		function getMaxIFDate(soId, productId) {
+		function getMaxIFDate(soId, productIDs) {
 
-			var result = query
-			.runSuiteQL({
-				query: "SELECT DISTINCT \
-					MAX(IFF.trandate) AS max_date, \
-					IT.fullname, \
-					IFIT.custcol_rsm_product_id AS product_id, \
-					DSOIT.uniquekey AS lineuniquekey, \
-					BUILTIN.DF(IT.revenueallocationgroup) AS allocation_group \
+			var maxIFDate = null
+			if(productIDs.length > 0) {
+				var result = query
+				.runSuiteQL({
+					query: "SELECT DISTINCT \
+					MAX(IFF.trandate) AS max_date\
 				FROM Transaction AS IFF \
 				INNER JOIN TransactionLine IFIT ON (IFF.id = IFIT.transaction) \
-				INNER JOIN TransactionLine AS DSOIT ON (DSOIT.custcol_rsm_product_id = IFIT.custcol_rsm_product_id) \
-				INNER JOIN Transaction AS DSO ON (DSO.id = DSOIT.transaction) \
-				INNER JOIN PreviousTransactionLineLink AS PTLL ON (PTLL.nextdoc = IFF.id) \
-				INNER JOIN Transaction AS FSO ON (FSO.id = PTLL.previousdoc) \
-				INNER JOIN ITEM AS IT ON (IT.id = DSOIT.item) \
 				WHERE IFF.type = 'ItemShip' \
-					AND FSO.type != 'TrnfrOrd' \
 					AND IFIT.custcol_rsm_product_id IS NOT NULL \
-					AND DSO.type = 'SalesOrd' \
-					AND DSO.custbody_rsm_so_type = 1 \
-					AND DSO.id = ? \
-					AND IFIT.custcol_rsm_product_id = ? \
-				GROUP BY IT.fullname, IFIT.custcol_rsm_product_id, DSOIT.uniquekey, BUILTIN.DF(IT.revenueallocationgroup)",
-				params: [soId, productId]
-			})
-			.asMappedResults();
-			log.debug('setItemLinesObjDate', 'SuiteQL result: ' + JSON.stringify(result));
+						AND IFIT.custcol_rsm_product_id IN ('" + productIDs.join("','") + "')",
+					params: []
+				})
+				.asMappedResults();
+				log.debug('getMaxIFDate', 'KEY: ' + soId + ' ProductIDs: ' + productIDs.join(' , ') + ' SuiteQL result: ' + JSON.stringify(result));
 
-			return formatDate(result[0]['max_date']);
+				if(result.length > 0) {
+					maxIFDate = formatDate(result[0]['max_date']);
+				}
+			}
+
+			return maxIFDate;
 		}
 
 		/**
@@ -703,20 +713,17 @@ define(['N/search', 'N/record', 'N/runtime', 'N/error', 'N/format', 'N/query'],
 								"AND",
 								["taxline", "is", "F"],
 								"AND",
-								[
-									['item.name', 'contains', '-NI'],
-									'OR',
-									['item.name', 'contains', '-NIA'],
-									'OR',
-									['item.name', 'contains', '-NIK']
-								],
+								['item.name', 'doesnotcontain', '-NI'],
+								'AND',
+								['item.name', 'doesnotcontain', '-NIA'],
+								'AND',
+								['item.name', 'doesnotcontain', '-NIK'],
 								'AND',
     						['custbody_rsm_so_type', 'anyof', '1']
 							],
 						columns:
 							[
-								search.createColumn({ name: "lineuniquekey", label: "Line Unique Key" }),
-								search.createColumn({ name: "custcol_rsm_product_id", label: "Product ID" })
+								search.createColumn({ name: "lineuniquekey", label: "Line Unique Key" })
 							]
 					});
 				}
@@ -733,13 +740,11 @@ define(['N/search', 'N/record', 'N/runtime', 'N/error', 'N/format', 'N/query'],
 								"AND",
 								["shipping", "is", "F"],
 								"AND",
-								[
-									['item.name', 'contains', '-NI'],
-									'OR',
-									['item.name', 'contains', '-NIA'],
-									'OR',
-									['item.name', 'contains', '-NIK']
-								],
+								['item.name', 'doesnotcontain', '-NI'],
+								'AND',
+								['item.name', 'doesnotcontain', '-NIA'],
+								'AND',
+								['item.name', 'doesnotcontain', '-NIK'],
 								"AND",
 								["internalid", "anyof", soRecId],
 								"AND",
@@ -751,8 +756,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/error', 'N/format', 'N/query'],
 							],
 						columns:
 							[
-								search.createColumn({ name: "lineuniquekey", label: "Line Unique Key" }),
-								search.createColumn({ name: "custcol_rsm_product_id", label: "Product ID" })
+								search.createColumn({ name: "lineuniquekey", label: "Line Unique Key" })
 							]
 					});
 				}
@@ -844,7 +848,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/error', 'N/format', 'N/query'],
 					ignoreFieldChange: false
 				});
 
-				log.debug(stLoggerTitle, 'maxIFDate: ' + maxIFDate + ' updCumulativePct: ' + updCumulativePct);
+				log.debug(stLoggerTitle, 'soLineUniqueKey: ' + soLineUniqueKey + ' maxIFDate: ' + maxIFDate + ' updCumulativePct: ' + updCumulativePct);
 				maxIFDate = format.parse({ value: maxIFDate, type: format.Type.DATE });
 
 				revRecord.setValue({
