@@ -61,162 +61,10 @@ define([
 
       var createdFromLF = search.lookupFields({
         type: "transaction",
-        id: loadIRTransaction.id,
+        id: loadIRTransaction.getValue("createdfrom"),
         columns: ["type"],
       });
       log.debug("createdFrom Type", createdFromLF);
-
-      //*** We need to load the potential RMA transaction in order to do some different logic for F-RMA ***//
-
-      var createdFromTransaction = loadIRTransaction.getValue("createdfrom");
-
-      var loadRMATransaction = record.load({
-        type: "returnauthorization",
-        id: createdFromTransaction,
-      });
-
-      //RMA Transaction Type
-      var RMATransactionType = loadRMATransaction.getValue(
-        "custbody_rsm_rma_type"
-      );
-      log.debug("RMA Type", RMATransactionType);
-      var isReShip = loadRMATransaction.getValue("custbody_rsm_reship");
-      log.debug("isReship?", isReShip);
-      var BSOTransactionId = loadRMATransaction.getValue(
-        "custbody_rsm_blank_ord_created"
-      );
-      log.debug("BSO Transaction ID", BSOTransactionId);
-      //Avoiding some potential transactions with no BSO
-      if (BSOTransactionId) {
-        var loadBSOTransaction = record.load({
-          type: "customsale_rsm_blanket_order_bso",
-          id: BSOTransactionId,
-        });
-
-        var BSOlinesCount = loadBSOTransaction.getLineCount("item");
-
-        var itemReceiptItem = [];
-
-        // Just for FullFillment RMA Transactions
-        if ( RMATransactionType && RMATransactionType == 2) {
-          log.debug("*** It is a Fullfillment RMA Transaction ***");
-
-          //We will update the blanket sales order based on the product id from the item receipt lines
-
-          for (var index = 0; index < linesCount; index++) {
-            var itemReceiptId = loadIRTransaction.getSublistValue({
-              sublistId: "item",
-              fieldId: "custcol_rsm_product_id",
-              line: index,
-            });
-            var itemReceiptQTY = loadIRTransaction.getSublistValue({
-              sublistId: "item",
-              fieldId: "quantity",
-              line: index,
-            });
-            itemReceiptItem.push({ id: itemReceiptId, qty: itemReceiptQTY });
-          }
-
-          //Once we got the item ids we can dig into the BSO lines and get the item coincidence
-          for (var index = 0; index < BSOlinesCount; index++) {
-            var itemBSOId = loadBSOTransaction.getSublistValue({
-              sublistId: "item",
-              fieldId: "custcol_rsm_product_id",
-              line: index,
-            });
-
-            var itemBSOQtyPendingReturn = loadBSOTransaction.getSublistValue({
-              sublistId: "item",
-              fieldId: "custcol_rsm_qty_pend_return",
-              line: index,
-            });
-
-            var itemBSOQtyReturned = loadBSOTransaction.getSublistValue({
-              sublistId: "item",
-              fieldId: "custcol_rsm_qty_returned",
-              line: index,
-            });
-
-            var itemBSOQtyRemain = loadBSOTransaction.getSublistValue({
-              sublistId: "item",
-              fieldId: "custcol_rsm_remaining_qty",
-              line: index,
-            });
-
-            var itemBSOSumQTYShipped = loadBSOTransaction.getSublistValue({
-              sublistId: "item",
-              fieldId: "custcol_rsm_sum_qty_shpd",
-              line: index,
-            });
-
-            var findIRItemLine = _.find(itemReceiptItem, function (line) {
-              return line.id == itemBSOId;
-            });
-
-            log.debug("line founded to be process", findIRItemLine);
-            if (
-              findIRItemLine &&
-              findIRItemLine !== "undefined" &&
-              itemBSOId == findIRItemLine.id
-            ) {
-              log.debug("**ready to update the BSO fields**");
-              var decreasePendingReturn =
-                itemBSOQtyPendingReturn - findIRItemLine.qty;
-              log.debug("after create", decreasePendingReturn);
-
-              //Decrease QTY Pending return
-              loadBSOTransaction.setSublistValue({
-                sublistId: "item",
-                fieldId: "custcol_rsm_qty_pend_return",
-                line: index,
-                value: decreasePendingReturn,
-              });
-
-              //Increase QTY Returned
-              var increaseQTYReturned = itemBSOQtyReturned + findIRItemLine.qty;
-              loadBSOTransaction.setSublistValue({
-                sublistId: "item",
-                fieldId: "custcol_rsm_qty_returned",
-                line: index,
-                value: increaseQTYReturned,
-              });
-
-              //Increase Remaining Quantity
-              var increaseRemainQty = itemBSOQtyRemain + findIRItemLine.qty;
-              loadBSOTransaction.setSublistValue({
-                sublistId: "item",
-                fieldId: "custcol_rsm_remaining_qty",
-                line: index,
-                value: increaseRemainQty,
-              });
-
-              if (isReShip) {
-                //Decrease Sum Qty Shipped
-                var decreaseSumQTYShipped =
-                  itemBSOSumQTYShipped - findIRItemLine.qty;
-                loadBSOTransaction.setSublistValue({
-                  sublistId: "item",
-                  fieldId: "custcol_rsm_sum_qty_shpd",
-                  line: index,
-                  value: decreaseSumQTYShipped,
-                });
-              }
-            }
-          }
-
-          //Save the BSO transaction after update all the lines above
-          loadBSOTransaction.save();
-          loadIRTransaction.setValue({
-            fieldId: "custbody_rsm_item_rec_process_event",
-            value: false,
-          });
- 
-         loadIRTransaction.save();
-         return
-        }
-
-        //*** We need to load the potential RMA transaction in order to do some different logic for F-RMA ***//
-      }
 
       if (
         createdFromLF &&
@@ -226,6 +74,239 @@ define([
         createdFromLF.type[0].value !== "ItemRcpt"
       ) {
         log.debug("*** It is a valid RMA Transaction ***");
+
+        //*** BEGIN We need to load the potential RMA transaction in order to do some different logic for F-RMA ***//
+
+        var createdFromTransaction = loadIRTransaction.getValue("createdfrom");
+
+        var loadRMATransaction = record.load({
+          type: "returnauthorization",
+          id: createdFromTransaction,
+        });
+
+        //RMA Transaction Type
+        var RMATransactionType = loadRMATransaction.getValue(
+          "custbody_rsm_rma_type"
+        );
+        log.debug("RMA Type", RMATransactionType);
+        var isReShip = loadRMATransaction.getValue("custbody_rsm_reship");
+        log.debug("isReship?", isReShip);
+        var BSOTransactionId = loadRMATransaction.getValue(
+          "custbody_rsm_blank_ord_created"
+        );
+        log.debug("BSO Transaction ID", BSOTransactionId);
+        //Avoiding some potential transactions with no BSO
+        if (BSOTransactionId) {
+          var loadBSOTransaction = record.load({
+            type: "customsale_rsm_blanket_order_bso",
+            id: BSOTransactionId,
+          });
+
+          var BSOlinesCount = loadBSOTransaction.getLineCount("item");
+
+          var itemReceiptItem = [];
+
+          // Just for FullFillment RMA Transactions
+          if (RMATransactionType && RMATransactionType == 2) {
+            log.debug("*** It is a Fullfillment RMA Transaction ***");
+
+            //We need to find item group withint the RMA first
+            var RMACountItem = loadRMATransaction.getLineCount("item");
+            log.debug("rma count item", RMACountItem);
+            var RMAItemLine = [];
+
+            for (var index = 0; index < RMACountItem; index++) {
+              var RMAItemId = loadRMATransaction.getSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rsm_product_id",
+                line: index,
+              });
+              var RMAItemQty = loadRMATransaction.getSublistValue({
+                sublistId: "item",
+                fieldId: "quantity",
+                line: index,
+              });
+
+              var RMAItemName = loadRMATransaction.getSublistValue({
+                sublistId: "item",
+                fieldId: "item_display",
+                line: index,
+              });
+
+
+              if (
+                RMAItemName &&
+                RMAItemName !== "undefined"
+                //&&
+                // RMAItemName.indexOf("-G") > 0
+              ) {
+                RMAItemLine.push({ id: RMAItemId, qty: RMAItemQty });
+              }
+            }
+            
+
+            //We will update the blanket sales order based on the product id from the item receipt lines
+
+            for (var index = 0; index < linesCount; index++) {
+              var itemReceiptId = loadIRTransaction.getSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rsm_product_id",
+                line: index,
+              });
+              var itemReceiptQTY = loadIRTransaction.getSublistValue({
+                sublistId: "item",
+                fieldId: "quantity",
+                line: index,
+              });
+              var itemReceiptQTYComponent = loadIRTransaction.getSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rsm_qty_component",
+                line: index,
+              });
+              var itemReceiptNOComponent = loadIRTransaction.getSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rsm_no_components",
+                line: index,
+              });
+
+              //RFS23-1193 Item Group Requirements for Item Receipt
+
+              //Scenario #1 •	If Item Receipt line has No of Components = 1, then script can continue per current design i.e. update qty on BSO using qty on F-RMA line
+
+              if (itemReceiptNOComponent == 1) {
+                log.debug("scenario #1");
+                var findItemRMAId = _.find(RMAItemLine, function (line) {
+                  return line.id == itemReceiptId;
+                });
+                if (
+                  findItemRMAId &&
+                  typeof findItemRMAId !== "undefined" &&
+                  itemReceiptId == findItemRMAId.id
+                ) {
+                  itemReceiptItem.push({
+                    id: itemReceiptId,
+                    qty: findItemRMAId.qty,
+                  });
+                }
+              }
+
+              //Scenario #2 •	If Item Receipt line has No of Components > 1, then script calculates Item Group Qty by dividing Quantity by Qty of Component
+              if (itemReceiptNOComponent > 1) {
+                log.debug("scenario #2");
+                //Calculate item group qty
+                var itemGroupQTY = itemReceiptQTY / itemReceiptQTYComponent;
+               // log.debug("after calculate", itemGroupQTY);
+                itemReceiptItem.push({ id: itemReceiptId, qty: itemGroupQTY });
+              }
+
+             
+            }
+            //log.debug("after IR loop", itemReceiptItem);
+          //Scenario #3 •	If Item Receipt line has same Product ID as another line that script has processed, then script will ignore line (these are the multiple component lines related to one item group)
+           var uniqueIRLines = _.uniqBy(itemReceiptItem, 'id');
+           // log.debug('after remove duplicate', uniqueIRLines)
+
+            //Once we got the item ids we can dig into the BSO lines and get the item coincidence
+            for (var index = 0; index < BSOlinesCount; index++) {
+              var itemBSOId = loadBSOTransaction.getSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rsm_product_id",
+                line: index,
+              });
+
+              var itemBSOQtyPendingReturn = loadBSOTransaction.getSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rsm_qty_pend_return",
+                line: index,
+              });
+
+              var itemBSOQtyReturned = loadBSOTransaction.getSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rsm_qty_returned",
+                line: index,
+              });
+
+              var itemBSOQtyRemain = loadBSOTransaction.getSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rsm_remaining_qty",
+                line: index,
+              });
+
+              var itemBSOSumQTYShipped = loadBSOTransaction.getSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rsm_sum_qty_shpd",
+                line: index,
+              });
+
+              var findIRItemLine = _.find(uniqueIRLines, function (line) {
+                return line.id == itemBSOId;
+              });
+
+            //  log.debug("line founded to be process", findIRItemLine);
+              if (
+                findIRItemLine &&
+                findIRItemLine !== "undefined" &&
+                itemBSOId == findIRItemLine.id
+              ) {
+                log.debug("**ready to update the BSO fields**");
+                var decreasePendingReturn =
+                  itemBSOQtyPendingReturn - findIRItemLine.qty;
+                log.debug("after create", decreasePendingReturn);
+
+                //Decrease QTY Pending return
+                loadBSOTransaction.setSublistValue({
+                  sublistId: "item",
+                  fieldId: "custcol_rsm_qty_pend_return",
+                  line: index,
+                  value: decreasePendingReturn,
+                });
+
+                //Increase QTY Returned
+                var increaseQTYReturned =
+                  itemBSOQtyReturned + findIRItemLine.qty;
+                loadBSOTransaction.setSublistValue({
+                  sublistId: "item",
+                  fieldId: "custcol_rsm_qty_returned",
+                  line: index,
+                  value: increaseQTYReturned,
+                });
+
+                //Increase Remaining Quantity
+                var increaseRemainQty = itemBSOQtyRemain + findIRItemLine.qty;
+                loadBSOTransaction.setSublistValue({
+                  sublistId: "item",
+                  fieldId: "custcol_rsm_remaining_qty",
+                  line: index,
+                  value: increaseRemainQty,
+                });
+
+                if (isReShip) {
+                  //Decrease Sum Qty Shipped
+                  var decreaseSumQTYShipped =
+                    itemBSOSumQTYShipped - findIRItemLine.qty;
+                  loadBSOTransaction.setSublistValue({
+                    sublistId: "item",
+                    fieldId: "custcol_rsm_sum_qty_shpd",
+                    line: index,
+                    value: decreaseSumQTYShipped,
+                  });
+                }
+              }
+            }
+
+            //Save the BSO transaction after update all the lines above
+            loadBSOTransaction.save();
+             loadIRTransaction.setValue({
+               fieldId: "custbody_rsm_item_rec_process_event",
+               value: false,
+             });
+
+            loadIRTransaction.save();
+            return;
+          }
+
+          //*** END We need to load the potential RMA transaction in order to do some different logic for F-RMA ***//
+        }
 
         for (var index = 0; index < linesCount; index++) {
           var itemReceiptId = loadIRTransaction.getSublistValue({
@@ -280,18 +361,18 @@ define([
           }
         }
 
-         loadIRTransaction.setValue({
-           fieldId: "custbody_rsm_item_rec_process_event",
-           value: false,
-         });
+        loadIRTransaction.setValue({
+          fieldId: "custbody_rsm_item_rec_process_event",
+          value: false,
+        });
 
-         loadIRTransaction.save();
+        loadIRTransaction.save();
         log.debug("*** Scenario #1 Return for future shipment completed ***");
       } else {
-         loadIRTransaction.setValue({
-           fieldId: "custbody_rsm_item_rec_process_event",
-           value: false,
-         });
+        loadIRTransaction.setValue({
+          fieldId: "custbody_rsm_item_rec_process_event",
+          value: false,
+        });
 
         loadIRTransaction.save();
         log.debug(
@@ -301,7 +382,8 @@ define([
         return;
       }
     } catch (e) {
-      log.error("Map Reduce Script error", e);
+      log.error("M/R Script error", "Item Receipt: " + transactionId);
+      log.error("M/R Script error", e);
     }
 
     return "map complete";
@@ -394,7 +476,9 @@ define([
       log.audit("summary.output key,value", k + ", " + v);
       return true;
     });
-    log.error("errors", JSON.stringify(summary.mapSummary.errors));
+    if (!_.isEmpty(summary.mapSummary.errors)) {
+      log.error("errors", JSON.stringify(summary.mapSummary.errors));
+    }
   }
 
   return {
