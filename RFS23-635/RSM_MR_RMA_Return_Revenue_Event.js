@@ -44,13 +44,13 @@ define([
    * @param {MapSummary} context - Data collection containing the key/value pairs to process through the map stage
    */
   function mapStage(context) {
-    log.debug("MAP input", context.value);
+
     try {
       var input = JSON.parse(context.value);
       log.debug("transaction from map", input);
       var transactionId = input.id;
 
-      //  var newRecord = context.newRecord;
+      
       var loadRMATransaction = record.load({
         type: "returnauthorization",
         id: transactionId,
@@ -59,21 +59,20 @@ define([
       var isReadyForRevenue = loadRMATransaction.getValue(
         "custbody_rsm_ready_for_rev_scripts"
       );
-       // log.debug("is ready", isReadyForRevenue);
+       
 
-      var RMAType = loadRMATransaction.getText("custbody_rsm_rma_type");
-      log.debug("rma type", RMAType);
-
+      var RMAType = loadRMATransaction.getText("custbody_rsm_rma_type"); 
       var linesCount = loadRMATransaction.getLineCount("item");
-     // log.debug("count item", linesCount);
-
       var trandate = loadRMATransaction.getValue("trandate");
+      var RMAStatus = loadRMATransaction.getValue("status");
+     
+
       var getBSOTransactionId = loadRMATransaction.getValue(
         "custbody_rsm_blank_ord_created"
       );
 
-     // log.debug("BSO Transaction ID",  getBSOTransactionId);
-      if(getBSOTransactionId == "") return log.error('The current RMA does not have Blanket Sales Order and will not update nothing', 'RMA:' + transactionId)
+     
+      if(getBSOTransactionId == "") return log.error('The RMA does not have BSO and will not update nothing', 'RMA:' + transactionId)
        //We need to load the BSO in order to update some line fields
        var loadBSOTransaction = record.load({
         type: "customsale_rsm_blanket_order_bso",
@@ -117,7 +116,7 @@ define([
             line: index,
           });
 
-         // log.debug("item name", itemName);
+         
           //Just for physical items only
           if (
             itemName.indexOf("-NI") > 0 ||
@@ -252,7 +251,7 @@ define([
             ) {
               // //Decrease Remaining Quantity
               var decreaseRemainQty = itemBSOQtyRemain - findRMAItemLine.qty;
-            //  log.debug('decrease remain', decreaseRemainQty)
+            
               loadBSOTransaction.setSublistValue({
                 sublistId: "item",
                 fieldId: "custcol_rsm_remaining_qty",
@@ -289,7 +288,7 @@ define([
                   findRMAItemLineForShipped !== "undefined" &&
                   itemBSOId == findRMAItemLineForShipped.id
                 ) {
-                //  log.debug("special line founded", findRMAItemLineForShipped);
+                
 
                   var specialRemainQty =
                     itemBSOQtyRemain + findRMAItemLineForShipped.qty;
@@ -311,7 +310,8 @@ define([
         //
       } else if (
         !isReadyForRevenue &&
-        RMAType === "Fulfillment Return Authorization"
+        RMAType === "Fulfillment Return Authorization" &&
+        RMAStatus !== "Pending Approval"
       ) {
         //*** BSO setting fields block *** //
         if (getBSOTransactionId) {
@@ -339,7 +339,7 @@ define([
                 return line.id == itemBSOId;
               });
   
-              // log.debug("line founded to be process", findRMAItemLine);
+            
   
               if (
                 findRMAItemLine &&
@@ -363,7 +363,7 @@ define([
             }
             loadBSOTransaction.save();
           }else{
-            log.error('Your items are not physical and will not be process')
+            log.error('We could not get lines with the same ID in the BSO' + itemBSOId)
           }
         
         }
