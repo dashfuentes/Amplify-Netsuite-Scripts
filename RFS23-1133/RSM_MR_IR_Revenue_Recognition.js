@@ -71,7 +71,9 @@ define([
         createdFromLF.type &&
         createdFromLF.type.length > 0 &&
         createdFromLF.type[0].value !== "TrnfrOrd" &&
-        createdFromLF.type[0].value !== "ItemRcpt"
+        createdFromLF.type[0].value !== "ItemRcpt" &&
+        createdFromLF.type[0].value !== "PurchOrd" 
+
       ) {
         log.debug("*** It is a valid RMA Transaction ***");
 
@@ -177,6 +179,11 @@ define([
                 fieldId: "custcol_rsm_no_components",
                 line: index,
               });
+              var itemAdditionalRate = loadIRTransaction.getSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rfs23_cwgp_so_fso_item_rate",
+                line: index
+              })
 
               //RFS23-1193 Item Group Requirements for Item Receipt
 
@@ -210,12 +217,44 @@ define([
               //Scenario with No of Components empty and rate empty
 
               if (itemReceiptNOComponent == "" || itemComponentRate == "") {
-                log.error(
-                  "IR" + transactionId +
-                  "the product id" +
-                    itemReceiptId +
-                    " must have populated the no of components and rate fields"
-                );
+              log.debug('Scenario with no components empty and ', itemReceiptId)
+
+              var getUniqueKeyItem = query
+              .runSuiteQL({
+                query:
+                  "SELECT DISTINCT  \
+         IT.uniquekey\
+        FROM transaction AS SO \
+        INNER JOIN TransactionLine AS IT ON (SO.id = IT.transaction) \
+        WHERE SO.type = 'SalesOrd' \
+        AND SO.custbody_rsm_so_type = 1\
+        AND IT.custcol_rsm_product_id =  ?",
+                params: [itemReceiptId],
+              })
+              .asMappedResults();
+
+            // log.debug("after get rate", getRateFromFSO);
+             if(getUniqueKeyItem.length) { 
+              var revenueId = createRevRecognition(
+                getUniqueKeyItem[0].uniquekey,
+                itemAdditionalRate,
+                itemComponentQty,
+                trandate
+              );
+              log.debug("revenue id was created!!", revenueId);
+
+              loadIRTransaction.setSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rev_event_rec",
+                line: index,
+                value: revenueId,
+              });
+
+              
+              itemReceiptItem.push({ id: itemReceiptId, qty: itemComponentQty });
+             }
+
+
               }
 
               //Create Negative Revenue Event
@@ -234,7 +273,7 @@ define([
                 })
                 .asMappedResults();
 
-              log.debug("after get result", result);
+             // log.debug("after get result", result);
               //Create Revenue Event Transactions
               if (
                 result.length &&
@@ -263,7 +302,7 @@ define([
             //log.debug("after IR loop", itemReceiptItem);
             //Scenario #3 •	If Item Receipt line has same Product ID as another line that script has processed, then script will ignore line (these are the multiple component lines related to one item group)
             var uniqueIRLines = _.uniqBy(itemReceiptItem, "id");
-            // log.debug('after remove duplicate', uniqueIRLines)
+             log.debug('after remove duplicate', uniqueIRLines)
 
             //Once we got the item ids we can dig into the BSO lines and get the item coincidence
             for (var index = 0; index < BSOlinesCount; index++) {

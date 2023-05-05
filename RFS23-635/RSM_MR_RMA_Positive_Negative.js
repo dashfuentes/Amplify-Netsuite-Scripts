@@ -59,19 +59,21 @@ define([
       var isReadyForRevenue = loadRMATransaction.getValue(
         "custbody_rsm_ready_for_rev_scripts"
       );
-      //  log.debug("sales order id", isReadyForRevenue);
+       // log.debug("is ready", isReadyForRevenue);
 
       var RMAType = loadRMATransaction.getText("custbody_rsm_rma_type");
       log.debug("rma type", RMAType);
 
       var linesCount = loadRMATransaction.getLineCount("item");
-      log.debug("count item", linesCount);
+     // log.debug("count item", linesCount);
 
       var trandate = loadRMATransaction.getValue("trandate");
       var getBSOTransactionId = loadRMATransaction.getValue(
         "custbody_rsm_blank_ord_created"
       );
-      log.debug("BSO Transaction ID", getBSOTransactionId);
+
+     // log.debug("BSO Transaction ID",  getBSOTransactionId);
+      if(getBSOTransactionId == "") return log.error('The current RMA does not have Blanket Sales Order and will not update nothing', 'RMA:' + transactionId)
        //We need to load the BSO in order to update some line fields
        var loadBSOTransaction = record.load({
         type: "customsale_rsm_blanket_order_bso",
@@ -91,6 +93,7 @@ define([
             fieldId: "lineuniquekey",
             line: index,
           });
+          log.debug('unique key in RMA', itemUniqueLine)
           var itemId = loadRMATransaction.getSublistValue({
             sublistId: "item",
             fieldId: "custcol_rsm_product_id",
@@ -114,7 +117,7 @@ define([
             line: index,
           });
 
-          log.debug("item name", itemName);
+         // log.debug("item name", itemName);
           //Just for physical items only
           if (
             itemName.indexOf("-NI") > 0 ||
@@ -132,36 +135,37 @@ define([
           FROM transaction AS SO \
           INNER JOIN TransactionLine AS IT ON (SO.id = IT.transaction) \
           WHERE SO.type = 'SalesOrd' \
-          AND SO.custbody_rsm_so_type = 1\
+          AND SO.custbody_rsm_so_type =  1 \
           AND IT.custcol_rsm_product_id =  ?",
                 params: [itemId],
               })
               .asMappedResults();
             log.debug("getDSO", result);
+            if(result.length){
 
-            var revenuePositiveId = createPositiveRevRecognition(
-              result[0].uniquekey,
-              itemRate,
-              itemQty,
-              trandate
-            );
-            //  log.debug("positive revenue id", revenuePositiveId);
-
-            //[Positive]
-            loadRMATransaction.setSublistValue({
-              sublistId: "item",
-              fieldId: "custcol_rev_event_rec",
-              line: index,
-              value: revenuePositiveId,
-            });
-
+              var revenuePositiveId = createPositiveRevRecognition(
+                result[0].uniquekey,
+                itemRate,
+                itemQty,
+                trandate
+              );
+                log.debug("positive revenue id", revenuePositiveId);
+  
+              //[Positive]
+              loadRMATransaction.setSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rev_event_rec",
+                line: index,
+                value: revenuePositiveId,
+              });
+              
             var revenueNegativeId = createNegativeRevRecognition(
               itemUniqueLine,
               itemRate,
               itemQty,
               trandate
             );
-            //  log.debug("negative revenue id", revenueNegativeId);
+              log.debug("negative revenue id", revenueNegativeId);
             //[Negative]
             loadRMATransaction.setSublistValue({
               sublistId: "item",
@@ -201,6 +205,7 @@ define([
                 line: index,
                 value: revenueNegativeNotReturned,
               });
+            }
             }
           }
         }
@@ -284,7 +289,7 @@ define([
                   findRMAItemLineForShipped !== "undefined" &&
                   itemBSOId == findRMAItemLineForShipped.id
                 ) {
-                  log.debug("special line founded", findRMAItemLineForShipped);
+                //  log.debug("special line founded", findRMAItemLineForShipped);
 
                   var specialRemainQty =
                     itemBSOQtyRemain + findRMAItemLineForShipped.qty;
@@ -313,51 +318,54 @@ define([
           log.debug("execute", getRMAItemLinesForFRMA(loadRMATransaction));
           var RMAItemInfoLines = getRMAItemLinesForFRMA(loadRMATransaction);
 
-         
-
-          var BSOLineCount = loadBSOTransaction.getLineCount("item");
-          var isReShip = loadBSOTransaction.getValue("custbody_rsm_reship");
-
-          for (var index = 0; index < BSOLineCount; index++) {
-            var itemBSOId = loadBSOTransaction.getSublistValue({
-              sublistId: "item",
-              fieldId: "custcol_rsm_product_id",
-              line: index,
-            });
-
-            var itemBSOPendingReturn = loadBSOTransaction.getSublistValue({
-              sublistId: "item",
-              fieldId: "custcol_rsm_qty_pend_return",
-              line: index,
-            });
-
-            var findRMAItemLine = _.find(RMAItemInfoLines, function (line) {
-              return line.id == itemBSOId;
-            });
-
-            // log.debug("line founded to be process", findRMAItemLine);
-
-            if (
-              findRMAItemLine &&
-              findRMAItemLine !== "undefined" &&
-              itemBSOId == findRMAItemLine.id
-              // &&
-              //  isReShip
-            ) {
-              log.debug("**it is a F-RMA and ready to update the BSO fields**");
-              //Scenario #1 and #3
-              //Increase Pending Return
-              var increasePendingReturn = itemBSOPendingReturn + findRMAItemLine.qty;
-            //  log.debug('increase pending return', increasePendingReturn)
-              loadBSOTransaction.setSublistValue({
+          if(RMAItemInfoLines.length > 0){
+            var BSOLineCount = loadBSOTransaction.getLineCount("item");
+            var isReShip = loadBSOTransaction.getValue("custbody_rsm_reship");
+  
+            for (var index = 0; index < BSOLineCount; index++) {
+              var itemBSOId = loadBSOTransaction.getSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rsm_product_id",
+                line: index,
+              });
+  
+              var itemBSOPendingReturn = loadBSOTransaction.getSublistValue({
                 sublistId: "item",
                 fieldId: "custcol_rsm_qty_pend_return",
                 line: index,
-                value: increasePendingReturn,
               });
+  
+              var findRMAItemLine = _.find(RMAItemInfoLines, function (line) {
+                return line.id == itemBSOId;
+              });
+  
+              // log.debug("line founded to be process", findRMAItemLine);
+  
+              if (
+                findRMAItemLine &&
+                findRMAItemLine !== "undefined" &&
+                itemBSOId == findRMAItemLine.id
+                // &&
+                //  isReShip
+              ) {
+                log.debug("**it is a F-RMA and ready to update the BSO fields**");
+                //Scenario #1 and #3
+                //Increase Pending Return
+                var increasePendingReturn = itemBSOPendingReturn + findRMAItemLine.qty;
+                log.debug('increase pending return', increasePendingReturn)
+                loadBSOTransaction.setSublistValue({
+                  sublistId: "item",
+                  fieldId: "custcol_rsm_qty_pend_return",
+                  line: index,
+                  value: increasePendingReturn,
+                });
+              }
             }
+            loadBSOTransaction.save();
+          }else{
+            log.error('Your items are not physical and will not be process')
           }
-          loadBSOTransaction.save();
+        
         }
 
         loadRMATransaction.setValue({
@@ -376,12 +384,13 @@ define([
 
         loadRMATransaction.save();
         log.debug(
-          "** The Ready for Revenue Script field should be check and it has to be a Deal RMA"
+          "** The Ready for Revenue Script field should be check and it has to be a valid RMA"
         );
         return;
       }
     } catch (e) {
-      log.error("Map Reduce Script error", e);
+      log.error('M/R Script error','RMA: '+ transactionId);
+      log.error('M/R Script error', e);
     }
 
     return "map complete";
@@ -393,16 +402,15 @@ define([
    */
   function getRMAItemLinesForFRMA(transactionObj) {
     var linesCount = transactionObj.getLineCount("item");
-    log.debug("count item", linesCount);
+  //  log.debug("count item", linesCount);
     var itemIds = [];
-    var itemShippedNotReturnedInfo = [];
     for (var index = 0; index < linesCount; index++) {
       var itemId = transactionObj.getSublistValue({
         sublistId: "item",
         fieldId: "custcol_rsm_product_id",
         line: index,
       });
-      log.debug("itemId", itemId);
+     // log.debug("itemId", itemId);
       var itemName = transactionObj.getSublistValue({
         sublistId: "item",
         fieldId: "item_display",
@@ -415,24 +423,26 @@ define([
         line: index,
       });
 
-      var shippedNotReturned = transactionObj.getSublistValue({
+      var NOComponents = transactionObj.getSublistValue({
         sublistId: "item",
-        fieldId: "custcol_rsm_qty_shipped_not_returned",
+        fieldId: "custcol_rsm_no_components",
         line: index,
       });
 
-      log.debug("returned qty", shippedNotReturned);
+     //Scenario #1 If F-RMA line has No of Components = 1, 
+     //then it is a single item and script can continue per current design i.e. update qty on BSO using qty on F-RMA line
+     if(NOComponents == 1 ){
+      itemIds.push({ id: itemId, qty: itemQty });
+     }
 
-      if (
-        itemName.indexOf("-NI") > 0 ||
-        itemName.indexOf("-NIA") > 0 ||
-        itemName.indexOf("-NIK") > 0
-      ) {
-        itemIds.push({ id: itemId, qty: itemQty });
-      }
+     //Scenario #2 If F-RMA line has No of Components = blank and Item Name contains “-G”,
+     // then this is the parent item group and script will update BSO using this line’s qty
+     if(itemName.indexOf('-G') > 0 && NOComponents == "" ){
+      itemIds.push({ id: itemId, qty: itemQty });
+     }
+
+     //Scenario #3 If F-RMA line has No of Components > 1, then it is a component line and script will ignore it.(No actions needed)  
     }
-    log.debug("after get all the info for FRMA", itemIds);
-
     return itemIds;
   }
 
@@ -647,7 +657,9 @@ define([
       log.audit("summary.output key,value", k + ", " + v);
       return true;
     });
-    log.error("errors", JSON.stringify(summary.mapSummary.errors));
+    if(!_.isEmpty(summary.mapSummary.errors)) {
+      log.error('errors', JSON.stringify(summary.mapSummary.errors));
+    }
   }
 
   return {
