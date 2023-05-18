@@ -79,7 +79,7 @@ define([
         id: getBSOTransactionId,
       });
 
-      if (isReadyForRevenue && RMAType === "Deal Return Authorization") {
+      if (isReadyForRevenue && RMAType === "Deal Return Authorization" &&  RMAStatus !== "Pending Approval") {
         log.debug("*** It is a DEAL RMA Transaction ***");
         log.debug("*** Scenario #2 Credit/Refund for unshipped items  *** ");
 
@@ -431,17 +431,19 @@ define([
 
      //Scenario #1 If F-RMA line has No of Components = 1, 
      //then it is a single item and script can continue per current design i.e. update qty on BSO using qty on F-RMA line
-     if(NOComponents == 1 ){
-      itemIds.push({ id: itemId, qty: itemQty });
-     }
 
-     //Scenario #2 If F-RMA line has No of Components = blank and Item Name contains “-G”,
-     // then this is the parent item group and script will update BSO using this line’s qty
-     if(itemName.indexOf('-G') > 0 && NOComponents == "" ){
-      itemIds.push({ id: itemId, qty: itemQty });
-     }
+    //Scenario #2 If F-RMA line has No of Components = blank and Item Name contains “-G”,
+    // then this is the parent item group and script will update BSO using this line’s qty
 
      //Scenario #3 If F-RMA line has No of Components > 1, then it is a component line and script will ignore it.(No actions needed)  
+
+      //Scenario #4 when a single item does not have No of components and -G in the item name will be getting the qty field
+
+
+     if(NOComponents == 1 || itemName.indexOf('-G') > 0 && NOComponents == "" || itemName.indexOf('-G') < 0 && NOComponents == ""   ){
+      itemIds.push({ id: itemId, qty: itemQty });
+     }
+    
     }
     return itemIds;
   }
