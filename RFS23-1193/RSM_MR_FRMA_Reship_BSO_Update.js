@@ -2,7 +2,7 @@
  * @description 
  * @NApiVersion 2.x
  * @NScriptType MapReduceScript
- * This script will process Fullfillment RMA only to do updates on the BSO
+ * This script will process Fullfillment RMA only to do updates on the BSO based on the Res-Ship field 
  */
 define([
   "N/file",
@@ -21,24 +21,25 @@ define([
    * @return {Array|Object|Search|RecordRef} inputSummary
    */
   function getInputData() {
-    // var transactionId = runtime.getCurrentScript().getParameter({ name: 'custscript_rsm_mr_rma_id'});
-    // log.debug('transaction id from MR', transactionId)
-    var salesOrderSearch = search.create({
-      type: "salesorder",
-      filters:
-      [
-         ["type","anyof","SalesOrd"], 
-         "AND", 
-         ["custbody_rsm_close_order_proc_event","is","T"], 
-         "AND", 
-         ["mainline","is","T"]
+    var transactionId = runtime.getCurrentScript().getParameter({ name: 'custscript_rsm_frm_transactionid'});
+    log.debug('transaction id from MR', transactionId)
+    var returnauthorizationSearch = search.create({
+      type: "returnauthorization",
+      filters: [
+        ["type", "anyof", "RtnAuth"],
+        "AND",
+        ["custbody_rsm_rma_type", "anyof", "2"],
+        "AND",
+        ["mainline", "is", "T"],
+        "AND",
+        ["internalid", "is",  transactionId]
       ],
       columns: [
         search.createColumn({ name: "internalid", label: "Internal ID" }),
       ],
     });
 
-    return salesOrderSearch;
+    return returnauthorizationSearch;
   }
 
   /**
@@ -51,99 +52,94 @@ define([
       var input = JSON.parse(context.value);
       log.debug("transaction from map", input);
       var transactionId = input.id;
-
+      
       //  var newRecord = context.newRecord;
-      var loadSOTransaction = record.load({
-        type: "salesorder",
+      var loadRMATransaction = record.load({
+        type: "returnauthorization",
         id: transactionId,
       });
 
       log.debug("*** It is a Fullfillment RMA Transaction ***");
 
-      var linesCount = loadSOTransaction.getLineCount("item");
+      var linesCount = loadRMATransaction.getLineCount("item");
       //log.debug("count item", linesCount);
-      var BSOTransactionId = loadSOTransaction.getValue(
+      var BSOTransactionId = loadRMATransaction.getValue(
         "custbody_rsm_blank_ord_created"
       );
       log.debug("bso-transaction", BSOTransactionId);
-      
-    
-      var SOItemInfo = [];
+      var isReShip = loadRMATransaction.getValue("custbody_rsm_reship");
+      var RMAItemInfo = [];
 
       for (var index = 0; index < linesCount; index++) {
-        var itemId = loadSOTransaction.getSublistValue({
+        var itemId = loadRMATransaction.getSublistValue({
           sublistId: "item",
           fieldId: "custcol_rsm_product_id",
           line: index,
         });
 
-        var itemQty = loadSOTransaction.getSublistValue({
+        var itemQty = loadRMATransaction.getSublistValue({
           sublistId: "item",
           fieldId: "quantity",
           line: index,
         });
 
-        SOItemInfo.push({ id: itemId, qty: itemQty });
+        RMAItemInfo.push({ id: itemId, qty: itemQty });
       }
 
       //Load the BSO in order to update some information
 
-      if(BSOTransactionId){
-        var BSOTransaction = record.load({
-          type: "customsale_rsm_blanket_order_bso",
-          id: BSOTransactionId,
-        });
-  
-        var BSOLineCount = BSOTransaction.getLineCount("item");
-        for (var index = 0; index < BSOLineCount; index++) {
-          var BSOItemId = BSOTransaction.getSublistValue({
-            sublistId: "item",
-            fieldId: "custcol_rsm_product_id",
-            line: index,
-          });
-  
-          var BSOQtyRemaining = BSOTransaction.getSublistValue({
-            sublistId: "item",
-            fieldId: "custcol_rsm_remaining_qty",
-            line: index,
-          });
-  
-          var findBSOTransactionLine = _.find(SOItemInfo, function (line) {
-            return line.id === BSOItemId;
-          });
-          log.debug("after find transaction line", findBSOTransactionLine);
-          if (
-            findBSOTransactionLine &&
-            findBSOTransactionLine !== "undefined" &&
-            BSOItemId == findBSOTransactionLine.id
-          ) {
-            //Increase Remaining Qty
-            log.debug("ready to update bso lines");
-            
-
-            var increaseQtyRemaining = BSOQtyRemaining + findBSOTransactionLine.qty;
-            log.debug('after increase', increaseQtyRemaining)
-            BSOTransaction.setSublistValue({
-              sublistId: "item",
-              fieldId: "custcol_rsm_remaining_qty",
-              line: index,
-              value: increaseQtyRemaining,
-            });
-          }
-        }
-        BSOTransaction.save()
-      }
-
-     
-
-      return
-
-      loadRMATransaction.setValue({
-        fieldId: "custbody_rsm_process_revenue_event",
-        value: false,
+      var BSOTransaction = record.load({
+        type: "customsale_rsm_blanket_order_bso",
+        id: BSOTransactionId,
       });
 
-      loadRMATransaction.save();
+      var BSOLineCount = BSOTransaction.getLineCount("item");
+
+      for (var index = 0; index < BSOLineCount; index++) {
+        var BSOItemId = BSOTransaction.getSublistValue({
+          sublistId: "item",
+          fieldId: "custcol_rsm_product_id",
+          line: index,
+        });
+
+        var BSOQtyPendingReturn = BSOTransaction.getSublistValue({
+          sublistId: "item",
+          fieldId: "custcol_rsm_sum_qty_shpd",
+          line: index,
+        });
+
+        var findRMATransactionLine = _.find(RMAItemInfo, function (line) {
+          return line.id === BSOItemId;
+        });
+        log.debug("after find transaction line", findRMATransactionLine);
+        if (
+          findRMATransactionLine &&
+          findRMATransactionLine !== "undefined" &&
+          BSOItemId == findRMATransactionLine.id &&
+          isReShip
+        ) {
+          //Decrease Sum Quantity Shipped
+
+          var decreaseQtyShipped = BSOQtyPendingReturn - findRMATransactionLine.qty;
+          log.debug('after calculation', decreaseQtyShipped)
+          BSOTransaction.setSublistValue({
+            sublistId: "item",
+            fieldId: "custcol_rsm_sum_qty_shpd",
+            line: index,
+            value: decreaseQtyShipped,
+          });
+        }
+      }
+
+      //Save BSO
+      BSOTransaction.save();
+      // //Unchecked Re-ship process field and save
+      // loadRMATransaction.setValue({
+      //   fieldId: "custbody_rsm_reship_process",
+      //   value: false,
+      // });
+
+     // loadRMATransaction.save();
 
       log.debug("** After save the transaction **");
 

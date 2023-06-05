@@ -71,7 +71,9 @@ define([
         createdFromLF.type &&
         createdFromLF.type.length > 0 &&
         createdFromLF.type[0].value !== "TrnfrOrd" &&
-        createdFromLF.type[0].value !== "ItemRcpt"
+        createdFromLF.type[0].value !== "ItemRcpt" &&
+        createdFromLF.type[0].value !== "PurchOrd" 
+
       ) {
         log.debug("*** It is a valid RMA Transaction ***");
 
@@ -133,7 +135,6 @@ define([
                 line: index,
               });
 
-
               if (
                 RMAItemName &&
                 RMAItemName !== "undefined"
@@ -143,7 +144,6 @@ define([
                 RMAItemLine.push({ id: RMAItemId, qty: RMAItemQty });
               }
             }
-            
 
             //We will update the blanket sales order based on the product id from the item receipt lines
 
@@ -153,6 +153,17 @@ define([
                 fieldId: "custcol_rsm_product_id",
                 line: index,
               });
+              var itemComponentQty = loadIRTransaction.getSublistValue({
+                sublistId: "item",
+                fieldId: "quantity",
+                line: index,
+              });
+              var itemComponentRate = loadIRTransaction.getSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rsm_component_rate",
+                line: index,
+              });
+
               var itemReceiptQTY = loadIRTransaction.getSublistValue({
                 sublistId: "item",
                 fieldId: "quantity",
@@ -168,6 +179,11 @@ define([
                 fieldId: "custcol_rsm_no_components",
                 line: index,
               });
+              var itemAdditionalRate = loadIRTransaction.getSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rfs23_cwgp_so_fso_item_rate",
+                line: index
+              })
 
               //RFS23-1193 Item Group Requirements for Item Receipt
 
@@ -195,16 +211,98 @@ define([
                 log.debug("scenario #2");
                 //Calculate item group qty
                 var itemGroupQTY = itemReceiptQTY / itemReceiptQTYComponent;
-               // log.debug("after calculate", itemGroupQTY);
+                // log.debug("after calculate", itemGroupQTY);
                 itemReceiptItem.push({ id: itemReceiptId, qty: itemGroupQTY });
               }
+              //Scenario with No of Components empty and rate empty
 
-             
+              if (itemReceiptNOComponent == "" || itemComponentRate == "") {
+              log.debug('Scenario with no components empty and ', itemReceiptId)
+
+              var getUniqueKeyItem = query
+              .runSuiteQL({
+                query:
+                  "SELECT DISTINCT  \
+         IT.uniquekey\
+        FROM transaction AS SO \
+        INNER JOIN TransactionLine AS IT ON (SO.id = IT.transaction) \
+        WHERE SO.type = 'SalesOrd' \
+        AND SO.custbody_rsm_so_type = 1\
+        AND IT.custcol_rsm_product_id =  ?",
+                params: [itemReceiptId],
+              })
+              .asMappedResults();
+
+            // log.debug("after get rate", getRateFromFSO);
+             if(getUniqueKeyItem.length) { 
+              var revenueId = createRevRecognition(
+                getUniqueKeyItem[0].uniquekey,
+                itemAdditionalRate,
+                itemComponentQty,
+                trandate
+              );
+              log.debug("revenue id was created!!", revenueId);
+
+              loadIRTransaction.setSublistValue({
+                sublistId: "item",
+                fieldId: "custcol_rev_event_rec",
+                line: index,
+                value: revenueId,
+              });
+
+              
+              itemReceiptItem.push({ id: itemReceiptId, qty: itemComponentQty });
+             }
+
+
+              }
+
+              //Create Negative Revenue Event
+
+              var result = query
+                .runSuiteQL({
+                  query:
+                    "SELECT DISTINCT  \
+          IT.uniquekey\
+          FROM transaction AS SO \
+          INNER JOIN TransactionLine AS IT ON (SO.id = IT.transaction) \
+          WHERE SO.type = 'SalesOrd' \
+          AND SO.custbody_rsm_so_type = 1\
+          AND IT.custcol_rsm_product_id =  ?",
+                  params: [itemReceiptId],
+                })
+                .asMappedResults();
+
+             // log.debug("after get result", result);
+              //Create Revenue Event Transactions
+              if (
+                result.length &&
+                itemReceiptNOComponent !== "" &&
+                itemComponentRate !== ""
+              ) {
+                var revenueNegativeId = createRevRecognition(
+                  result[0].uniquekey,
+                  itemComponentRate,
+                  itemComponentQty,
+                  trandate
+                );
+                //log.debug("positive revenue id", revenueNegativeId);
+
+                loadIRTransaction.setSublistValue({
+                  sublistId: "item",
+                  fieldId: "custcol_rev_event_rec",
+                  line: index,
+                  value: revenueNegativeId,
+                });
+              }
             }
+
+            // loadIRTransaction.save();
+
             //log.debug("after IR loop", itemReceiptItem);
-          //Scenario #3 •	If Item Receipt line has same Product ID as another line that script has processed, then script will ignore line (these are the multiple component lines related to one item group)
-           var uniqueIRLines = _.uniqBy(itemReceiptItem, 'id');
-           // log.debug('after remove duplicate', uniqueIRLines)
+            //Scenario #3 •	If Item Receipt line has same Product ID as another line that script has processed, then script will ignore line (these are the multiple component lines related to one item group)
+            var uniqueIRLines = _.uniqBy(itemReceiptItem, "id");
+             log.debug('after remove duplicate', uniqueIRLines)
 
             //Once we got the item ids we can dig into the BSO lines and get the item coincidence
             for (var index = 0; index < BSOlinesCount; index++) {
@@ -242,7 +340,7 @@ define([
                 return line.id == itemBSOId;
               });
 
-            //  log.debug("line founded to be process", findIRItemLine);
+              //  log.debug("line founded to be process", findIRItemLine);
               if (
                 findIRItemLine &&
                 findIRItemLine !== "undefined" &&
@@ -296,10 +394,10 @@ define([
 
             //Save the BSO transaction after update all the lines above
             loadBSOTransaction.save();
-             loadIRTransaction.setValue({
-               fieldId: "custbody_rsm_item_rec_process_event",
-               value: false,
-             });
+            loadIRTransaction.setValue({
+              fieldId: "custbody_rsm_item_rec_process_event",
+              value: false,
+            });
 
             loadIRTransaction.save();
             return;
