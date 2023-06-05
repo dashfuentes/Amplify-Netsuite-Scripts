@@ -107,7 +107,7 @@ define([
         });
 
         //Getting group-parent items
-        if(itemName.indexOf('-G') > 0){
+        if(itemName.indexOf('-G') > 0 && isClosed && !IFFStatus){
           parentItems.push({id:itemId, qty: itemQty})
          }
 
