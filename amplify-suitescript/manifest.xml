@@ -1,0 +1,33 @@
+<manifest projecttype="ACCOUNTCUSTOMIZATION">
+  <projectname>Amplify</projectname>
+  <frameworkversion>1.0</frameworkversion>
+  <dependencies>
+    <features>
+      <feature required="true">SERVERSIDESCRIPTING</feature>
+      <feature required="false">CREATESUITEBUNDLES</feature>
+    </features>
+    <objects>
+      <object>custbody_11187_pref_entity_bank</object>
+      <object>custbody_atlas_advertiser_lst</object>
+      <object>custbody_11724_pay_bank_fees</object>
+      <object>custbody_rev_recog_events_created</object>
+      <object>custbody_amp_pr_je</object>
+      <object>custcol_rsm_sum_qty_shpd</object>
+      <object>customrecord_specialshippingtype</object>
+      <object>custcol_sospecialshippingtype</object>
+      <object>custbody_amp_allocation_processed</object>
+      <object>custcol_rev_event_rec</object>
+      <object>customsearch_amp_10_shiping_rr_event</object>
+      <object>customrecord_2663_entity_bank_details</object>
+      <object>custcol_amp_nmsi</object>
+      <object>custbody_amp_multi_site_order</object>
+      <object>custbody_amp_employee</object>
+      <object>customlist_rsm_so_type</object>
+      <object>custbody_amp_accounting_period</object>
+      <object>custcol_rsm_product_id</object>
+      <object>custbody_rsm_so_type</object>
+      <object>custbody_11724_bank_fee</object>
+      <object>custbody_so_multi_year</object>
+    </objects>
+  </dependencies>
+</manifest>
