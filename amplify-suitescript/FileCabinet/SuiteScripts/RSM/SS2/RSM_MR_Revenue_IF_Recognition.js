@@ -17,7 +17,6 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
         query: "SELECT DISTINCT \
           IFF.id, \
           IFF.trandate, \
-          FSO.type AS created_from_type, \
           IFIT.item, \
           IFIT.custcol_rsm_product_id AS product_id, \
           DSO.id AS dso_id, \
@@ -26,19 +25,14 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
           IFIT.itemtype, \
           IFIT.kitmemberof, \
           COALESCE(IFIT.custcol_rsm_component_rate, 0) AS component_rate, \
-          COALESCE(FSOIT.custcol_rfs23_cwgp_so_fso_item_rate, 0) AS item_rate, \
           IFIT.custcol_rev_event_rec AS revenue_event_id \
         FROM Transaction AS IFF \
         INNER JOIN TransactionLine IFIT ON (IFF.id = IFIT.transaction) \
-        INNER JOIN TransactionLine AS DSOIT ON (DSOIT.custcol_rsm_product_id = IFIT.custcol_rsm_product_id) \
-        INNER JOIN Transaction AS DSO ON (DSO.id = DSOIT.transaction) \
-        INNER JOIN PreviousTransactionLineLink AS PTLL ON (PTLL.nextdoc = IFF.id) \
-        INNER JOIN Transaction AS FSO ON (FSO.id = PTLL.previousdoc) \
-        INNER JOIN TransactionLine AS FSOIT ON (FSO.id = FSOIT.transaction AND IFIT.item = FSOIT.item) \
+        INNER JOIN Transaction AS DSO ON (DSO.id = IFF.custbody_rsm_bso_dso_link) \
+        INNER JOIN TransactionLine AS DSOIT ON (DSO.id = DSOIT.transaction AND DSOIT.custcol_rsm_product_id = IFIT.custcol_rsm_product_id) \
         WHERE IFF.type = 'ItemShip' \
           AND BUILTIN.DF(IFF.status) = 'Item Fulfillment : Shipped' \
           AND IFIT.itemtype != 'Kit'\
-          AND FSO.type != 'TrnfrOrd' \
           AND IFIT.custcol_rsm_product_id IS NOT NULL \
           AND IFIT.custcol_rev_event_rec IS NULL \
           AND DSO.type = 'SalesOrd' \
@@ -66,6 +60,23 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
       });
       log.debug("record", JSON.stringify(loadIFRecord));
 
+      // Getting FSO
+      var createdFromId = loadIFRecord.getValue({fieldId: "createdfrom"});
+      log.debug("FSO ID", createdFromId);
+
+      // Getting createdFrom Transaction Type
+      var createdFromLF = search.lookupFields({
+        type: "transaction",
+        id: createdFromId,
+        columns: ['type']
+      });
+      log.debug('createdFrom Type', createdFromLF);
+
+      if(createdFromLF && createdFromLF.type && createdFromLF.type.length > 0 && createdFromLF.type[0].value === 'TrnfrOrd') {
+        log.debug('Created Form Type', 'The createdForm record type is Transfer Order and is omitted from the revenue recognition process');
+        return;
+      }
+
       // Looking for line index
       var linesCount = loadIFRecord.getLineCount("item");
       log.debug("count item", linesCount);
@@ -77,9 +88,40 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
           line: index,
         });
 
-        if(input.item == itemID) {
+        var productID = loadIFRecord.getSublistValue({
+          sublistId: "item",
+          fieldId: "custcol_rsm_product_id",
+          line: index,
+        });
+
+        if(input.item == itemID && input.product_id == productID) {
           input.line = index;
           log.debug("item Line", input);
+
+          // Getting Item Rate
+          var itemRateResults = query
+            .runSuiteQL({
+              query: "SELECT \
+                FSO.id, \
+                FSOIT.item, \
+                FSOIT.custcol_rsm_product_id AS product_id, \
+                COALESCE(FSOIT.custcol_rfs23_cwgp_so_fso_item_rate, 0) AS item_rate \
+              FROM Transaction AS FSO \
+              INNER JOIN TransactionLine AS FSOIT ON (FSO.id = FSOIT.transaction) \
+              WHERE FSO.id = ? \
+                AND FSOIT.item = ? \
+                AND FSOIT.custcol_rsm_product_id = ?",
+              params: [createdFromId, itemID, productID]
+            })
+            .asMappedResults();
+          log.debug("itemRateResults", itemRateResults)
+
+          var itemRate = 0;
+          if(itemRateResults && itemRateResults.length > 0) {
+            itemRate = itemRateResults[0].item_rate;
+          }
+          input.item_rate = itemRate;
+          log.debug("Item Rate", itemRate);
 
           // Creating Revnue Event
           var revenueId =  createRevRecognition(input);
