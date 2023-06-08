@@ -5,6 +5,8 @@
     <files>
 <!--        <path>~/FileCabinet/SuiteScripts/RSM/SS2/RSM_MR_Rev_Recog_Event.js</path>-->
         <path>~/FileCabinet/SuiteScripts/RSM/SS2/RSM_MR_Revenue_IF_Recognition.js</path>
+        <path>~/FileCabinet/SuiteScripts/RSM/SS2/RSM_MR_RemoveOverstatedRev.js</path>
+        <path>~/FileCabinet/SuiteScripts/RSM/SS2/RSM_MR_RemoveOverstatedRevRecEv.js</path>
     </files>
 <!--    <objects>-->
 <!--        <path>~/Objects/customscript_rsm_mr_rev_recog_event.xml</path>-->
@@ -14,7 +16,9 @@
 <!--        <path>~/Objects/customsearch_rsm_10_spec_ship_item.xml</path>-->
         <!-- 652 Ticket -->
 <!--        <path>~/Objects/customscript_rsm_mr_if_revrec_process.xml</path>-->
-<!--      <path>~/Objects/customsearch_rfs23_rev_rec_iff_line.xml</path>-->
+<!--        <path>~/Objects/customsearch_rfs23_rev_rec_iff_line.xml</path>-->
+<!--        <path>~/Objects/customscript_rsm_mr_removeoverstatedrev.xml</path>-->
+<!--        <path>~/Objects/customscript_rsm_mr_removeosrevrecev.xml</path>-->
 <!--    </objects>-->
 <!--    <translationimports>-->
 <!--        <path>~/Translations/*</path>-->
