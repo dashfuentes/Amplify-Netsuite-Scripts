@@ -71,14 +71,14 @@ define(['N/search', 'N/util', 'N/runtime','N/record', 'N/task', '../lodash'], fu
       return true;
     });
 
-    if(data.length > 0) {
-      const mrTask = task.create({
-        taskType: task.TaskType.MAP_REDUCE,
-        scriptId: 'customscript_rsm_mr_removeosrevrecev'
-      })
-      mrTask.submit()
-      log.debug('Map Reduce Task', 'The map reduces has been tasked')
-    }
+    // if(data.length > 0) {
+    //   const mrTask = task.create({
+    //     taskType: task.TaskType.MAP_REDUCE,
+    //     scriptId: 'customscript_rsm_mr_removeosrevrecev'
+    //   })
+    //   mrTask.submit()
+    //   log.debug('Map Reduce Task', 'The map reduces has been tasked')
+    // }
   }
 
   return {

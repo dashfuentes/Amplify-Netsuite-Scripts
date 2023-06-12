@@ -168,9 +168,6 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
       log.audit('summary.output key,value', k + ', ' + v);
       return true;
     });
-    if(!_.isEmpty(summary.mapSummary.errors)) {
-      log.error('errors', JSON.stringify(summary.mapSummary.errors));
-    }
   }
 
   function createRevRecognition(data) {
