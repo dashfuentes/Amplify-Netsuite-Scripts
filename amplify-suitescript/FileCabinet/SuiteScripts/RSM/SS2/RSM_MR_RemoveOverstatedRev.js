@@ -7,8 +7,6 @@ define(['N/search', 'N/util', 'N/runtime','N/record', 'N/task', '../lodash'], fu
   /**
    * @description Marks the beginning of the Map/Reduce process and generates input data.
    * @typedef {Object} ObjectRef
-   * @property {number} id - Internal ID of the record instance
-   * @property {string} type - Record type id
    * @return {Array|Object|Search|RecordRef} inputSummary
    */
   function getInputData() {
@@ -17,7 +15,11 @@ define(['N/search', 'N/util', 'N/runtime','N/record', 'N/task', '../lodash'], fu
       throw new Error("The Script parameter custscript_rsm_mr_ss_revrecplanid was not provided!")
     }
 
-    return search.load({id: ssid});
+    log.debug('SSI ID', ssid);
+
+    var searchResults =  search.load({id: ssid});
+    log.debug('Search Results', searchResults);
+    return searchResults;
   }
 
   /**
@@ -25,7 +27,7 @@ define(['N/search', 'N/util', 'N/runtime','N/record', 'N/task', '../lodash'], fu
    * @param {MapSummary} context - Data collection containing the key/value pairs to process through the map stage
    */
   function mapStage(context) {
-    var data = util.isObject(context.value) ? context.value : JSON.parse(context.value);
+    var data = JSON.parse(context.value);
     log.debug('context.value', data);
 
     try {
@@ -47,12 +49,7 @@ define(['N/search', 'N/util', 'N/runtime','N/record', 'N/task', '../lodash'], fu
    * @description Executes when the reduce entry point is triggered and applies to each group.
    * @param {ReduceSummary} context - Data collection containing the groups to process through the reduce stage
    */
-  function reduce(context) {
-    // _reduceContext.write({
-    //   key: _reduceContext.key
-    //   , value: _reduceContext.values
-    // });
-  }
+  function reduce(context) {}
 
   /**
    * @description Executes when the summarize entry point is triggered and applies to the result set.
@@ -82,10 +79,6 @@ define(['N/search', 'N/util', 'N/runtime','N/record', 'N/task', '../lodash'], fu
   }
 
   return {
-    // config: {
-    //     retryCount: 3
-    //     , exitOnError: false
-    // }
     getInputData: getInputData,
     map: mapStage,
     // reduce: reduce,

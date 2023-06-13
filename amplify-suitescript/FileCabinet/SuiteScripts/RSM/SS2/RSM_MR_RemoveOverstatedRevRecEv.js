@@ -3,7 +3,7 @@
  * @NApiVersion 2.x
  * @NScriptType MapReduceScript
  */
-define(['N/search', 'N/util', 'N/runtime','N/record', '../lodash'], function(search, util, runtime, record, _) {
+define(['N/search', 'N/util', 'N/runtime','N/record', 'N/query', '../lodash'], function(search, util, runtime, record, query, _) {
   /**
    * @description Marks the beginning of the Map/Reduce process and generates input data.
    * @typedef {Object} ObjectRef
@@ -30,6 +30,53 @@ define(['N/search', 'N/util', 'N/runtime','N/record', '../lodash'], function(sea
 
     try {
       var recordId = data.id;
+
+      // Checking if the Event Revenue Record is linked to an IFF
+      var iffResults = query
+        .runSuiteQL({
+          query: "SELECT \
+            IFF.id, \
+            IFIT.custcol_rsm_product_id, \
+            IFIT.custcol_rev_event_rec \
+          FROM Transaction AS IFF \
+          INNER JOIN TransactionLine IFIT ON (IFF.id = IFIT.transaction) \
+          WHERE IFF.type = 'ItemShip' \
+            AND BUILTIN.DF(IFF.status) = 'Item Fulfillment : Shipped' \
+            AND IFIT.custcol_rev_event_rec = ?",
+          params: [recordId]
+        })
+        .asMappedResults();
+      log.debug("iffResults", iffResults);
+
+      // If the Event Revenue Record is linked to an IFF, remove it from the IFF
+      if(iffResults && iffResults.length > 0) {
+        _.forEach(iffResults, function(iffr){
+          var loadIFRecord = record.load({
+            type: "itemfulfillment",
+            id: iffr.id
+          });
+          log.debug("record", JSON.stringify(loadIFRecord));
+
+          // Looking for line index
+          var linesCount = loadIFRecord.getLineCount("item");
+          log.debug("count item", linesCount);
+
+          for (var index = 0; index < linesCount; index++) {
+            var revenueRecEvId = loadIFRecord.getSublistValue({
+              sublistId: "item",
+              fieldId: "custcol_rev_event_rec",
+              line: index,
+            });
+
+            // Cleaning Rev Rec Ev column Item Line
+            if(revenueRecEvId == iffr.custcol_rev_event_rec) {
+              loadIFRecord.setSublistValue({ sublistId: "item", line: index, fieldId: 'custcol_rev_event_rec', value: '' });
+              loadIFRecord.save();
+            }
+          }
+        });
+      }
+
       record.delete({
         type: 'billingrevenueevent',
         id: recordId,
