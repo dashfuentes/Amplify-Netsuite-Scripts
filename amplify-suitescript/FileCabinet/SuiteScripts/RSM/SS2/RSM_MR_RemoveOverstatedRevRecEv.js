@@ -72,6 +72,7 @@ define(['N/search', 'N/util', 'N/runtime','N/record', 'N/query', '../lodash'], f
             if(revenueRecEvId == iffr.custcol_rev_event_rec) {
               loadIFRecord.setSublistValue({ sublistId: "item", line: index, fieldId: 'custcol_rev_event_rec', value: '' });
               loadIFRecord.save();
+              return false;
             }
           }
         });
@@ -118,10 +119,6 @@ define(['N/search', 'N/util', 'N/runtime','N/record', 'N/query', '../lodash'], f
   }
 
   return {
-    // config: {
-    //     retryCount: 3
-    //     , exitOnError: false
-    // }
     getInputData: getInputData,
     map: mapStage,
     // reduce: reduce,
