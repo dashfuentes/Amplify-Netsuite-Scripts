@@ -12,9 +12,9 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
    * @return {Array|Object|Search|RecordRef} inputSummary
    */
   function getInputData() {
-    return query
-      .runSuiteQL({
-        query: "SELECT DISTINCT \
+    try{
+      var arrResults = [];
+      var strSQL = "SELECT DISTINCT \
           IFF.id, \
           IFF.trandate, \
           IFIT.item, \
@@ -37,10 +37,29 @@ define(['N/file', 'N/log', 'N/record', 'N/query', 'N/runtime', '../lodash', 'N/s
           AND IFIT.custcol_rev_event_rec IS NULL \
           AND DSO.type = 'SalesOrd' \
           AND DSO.custbody_rsm_so_type = 1 \
-          AND BUILTIN.DF(DSO.status) != 'Sales Order : Pending Approval'",
-        params: []
-      })
-      .asMappedResults();
+          AND BUILTIN.DF(DSO.status) NOT IN ('Sales Order : Pending Approval', 'Sales Order : Cancelled', 'Sales Order : Closed')";
+
+      var objIterator = query.runSuiteQLPaged({
+        query: strSQL,
+        pageSize: 1000
+      }).iterator();
+
+      objIterator.each(function(page) {
+        var objPage = page.value.data.iterator();
+
+        objPage.each(function(row) {
+          arrResults.push(row.value.asMap());
+          return true;
+        });
+
+        return true;
+      });
+
+      log.debug('getInputData length', arrResults.length);
+      return arrResults;
+    } catch(e) {
+      log.error('Get Input Data error', e);
+    }
   }
 
   /**

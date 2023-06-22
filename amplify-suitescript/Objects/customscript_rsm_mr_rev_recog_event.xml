@@ -279,6 +279,35 @@
     </scriptcustomfield>
   </scriptcustomfields>
   <scriptdeployments>
+<!--    <scriptdeployment scriptid="customdeploy_rsm_mr_rev_recog_event_sch">-->
+<!--      <buffersize>1</buffersize>-->
+<!--      <concurrencylimit>3</concurrencylimit>-->
+<!--      <custscript_rsm_event_type>1</custscript_rsm_event_type>-->
+<!--      <custscript_rsm_rev_recog_event_so>[scriptid=customsearch9700]</custscript_rsm_rev_recog_event_so>-->
+<!--      <custscript_rsm_rev_recog_event_svd_srch>[scriptid=customsearch9705]</custscript_rsm_rev_recog_event_svd_srch>-->
+<!--      <custscript_rsm_so_if_dte_lbl>Fulfillment Date</custscript_rsm_so_if_dte_lbl>-->
+<!--      <custscript_rsm_so_prod_lines_alloc_grp>[scriptid=customsearch9702]</custscript_rsm_so_prod_lines_alloc_grp>-->
+<!--      <custscript_rsm_so_prod_lines_svd_srch>[scriptid=customsearch9703]</custscript_rsm_so_prod_lines_svd_srch>-->
+<!--      <custscript_rsm_so_qty_shipped_lbl>Quantity Shipped</custscript_rsm_so_qty_shipped_lbl>-->
+<!--      <custscript_rsm_so_spcl_ship_items>[scriptid=customsearch9704]</custscript_rsm_so_spcl_ship_items>-->
+<!--      <custscript_rsm_so_status_billed>Pending Billing</custscript_rsm_so_status_billed>-->
+<!--      <custscript_rsm_so_totl_amt_lbl>Total Amount</custscript_rsm_so_totl_amt_lbl>-->
+<!--      <isdeployed>T</isdeployed>-->
+<!--      <loglevel>ERROR</loglevel>-->
+<!--      <queueallstagesatonce>T</queueallstagesatonce>-->
+<!--      <runasrole>ADMINISTRATOR</runasrole>-->
+<!--      <status>SCHEDULED</status>-->
+<!--      <title>RSM_RM_Revenue_Recognition_Event - Schedule</title>-->
+<!--      <yieldaftermins>60</yieldaftermins>-->
+<!--      <recurrence>-->
+<!--        <daily>-->
+<!--          <everyxdays>1</everyxdays>-->
+<!--          <repeat>PT4H</repeat>-->
+<!--          <startdate>2023-04-28</startdate>-->
+<!--          <starttime>06:00:00Z</starttime>-->
+<!--        </daily>-->
+<!--      </recurrence>-->
+<!--    </scriptdeployment>-->
     <scriptdeployment scriptid="customdeploy_rsm_mr_rev_recog_event_2">
       <buffersize>1</buffersize>
       <concurrencylimit>4</concurrencylimit>
