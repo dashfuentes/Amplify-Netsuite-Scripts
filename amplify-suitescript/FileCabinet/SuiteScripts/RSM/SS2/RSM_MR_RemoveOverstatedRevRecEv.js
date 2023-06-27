@@ -70,20 +70,14 @@ define(['N/search', 'N/util', 'N/runtime','N/record', 'N/query', '../lodash'], f
 
             // Cleaning Rev Rec Ev column Item Line
             if(revenueRecEvId == iffr.custcol_rev_event_rec) {
-              loadIFRecord.setSublistValue({ sublistId: "item", line: index, fieldId: 'custcol_rev_event_rec', value: '' });
-              loadIFRecord.save();
+              context.write({key: iffr.id, value: JSON.stringify({rreid: recordId, ifil: { sublistId: "item", line: index, fieldId: 'custcol_rev_event_rec', value: '' }})});
               return false;
             }
           }
         });
+      } else {
+        context.write({key: 'rreids', value: recordId});
       }
-
-      record.delete({
-        type: 'billingrevenueevent',
-        id: recordId,
-      });
-
-      log.debug("mapStatge", "Deleted revenue recognition event with ID: " + recordId);
     } catch (e) {
       log.error('Map/Reduce Script error', e);
     }
@@ -96,10 +90,33 @@ define(['N/search', 'N/util', 'N/runtime','N/record', 'N/query', '../lodash'], f
    * @param {ReduceSummary} context - Data collection containing the groups to process through the reduce stage
    */
   function reduce(context) {
-    // _reduceContext.write({
-    //   key: _reduceContext.key
-    //   , value: _reduceContext.values
-    // });
+    log.debug('REDUCE Context', context.values);
+    try {
+      if(context.key !== 'rreids') {
+        var itemFulfillment = record.load({ type: "itemfulfillment", id: context.key });
+        var rreids = [];
+
+        // Updating all IFF lines with the Recognition Revenue ID
+        _.forEach(context.values, function(val) {
+          var it = JSON.parse(val);
+          itemFulfillment.setSublistValue(it.ifil);
+          rreids.push(it.rreid);
+        });
+        itemFulfillment.save();
+
+        _.forEach(rreids, function (id) {
+          record.delete({ type: 'billingrevenueevent', id: id });
+          log.debug("mapStatge", "Deleted revenue recognition event with ID: " + id);
+        });
+      } else {
+        _.forEach(context.values, function (id) {
+          record.delete({ type: 'billingrevenueevent', id: id });
+          log.debug("mapStatge", "Deleted revenue recognition event with ID: " + id);
+        });
+      }
+    } catch (e) {
+      log.error('Map/Reduce Script reduce error', e);
+    }
   }
 
   /**
@@ -121,7 +138,7 @@ define(['N/search', 'N/util', 'N/runtime','N/record', 'N/query', '../lodash'], f
   return {
     getInputData: getInputData,
     map: mapStage,
-    // reduce: reduce,
+    reduce: reduce,
     summarize: summarize
   };
 });
