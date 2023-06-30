@@ -8,7 +8,7 @@
 <!--        <path>~/FileCabinet/SuiteScripts/RSM/SS2/RSM_MR_Rev_Recog_Event.js</path>-->
 <!--        <path>~/FileCabinet/SuiteScripts/RSM/SS2/RSM_MR_Revenue_IF_Recognition.js</path>-->
 <!--        <path>~/FileCabinet/SuiteScripts/RSM/SS2/RSM_MR_RemoveOverstatedRev.js</path>-->
-<!--        <path>~/FileCabinet/SuiteScripts/RSM/SS2/RSM_MR_RemoveOverstatedRevRecEv.js</path>-->
+        <path>~/FileCabinet/SuiteScripts/RSM/SS2/RSM_MR_RemoveOverstatedRevRecEv.js</path>
     </files>
 <!--    <objects>-->
 <!--        <path>~/Objects/customscript_rsm_mr_rev_recog_event.xml</path>-->

@@ -106,12 +106,17 @@ define(['N/search', 'N/util', 'N/runtime','N/record', 'N/query', '../lodash'], f
 
         _.forEach(rreids, function (id) {
           record.delete({ type: 'billingrevenueevent', id: id });
-          log.debug("mapStatge", "Deleted revenue recognition event with ID: " + id);
+          log.debug("reduceStatge", "Deleted revenue recognition event with ID: " + id);
         });
       } else {
         _.forEach(context.values, function (id) {
-          record.delete({ type: 'billingrevenueevent', id: id });
-          log.debug("mapStatge", "Deleted revenue recognition event with ID: " + id);
+          log.debug('reduceStatge', 'trying to delete REV REC ID: '+id);
+          try {
+            record.delete({ type: 'billingrevenueevent', id: id });
+            log.debug("reduceStatge", "Deleted revenue recognition event with ID: " + id);
+          } catch (e) {
+            log.error('Map/Reduce Script reduce error', e);
+          }
         });
       }
     } catch (e) {
